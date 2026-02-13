@@ -1,205 +1,134 @@
-// Minimal FCS (3.0/3.1-ish) parser for MVP import + preview sampling.
-//
-// Outputs a preview-only dataset: Float32Array per parameter (length <= 10k).
-// Full-resolution storage + worker pipelines are planned for later iterations.
-
-export async function parseFcsFile(arrayBuffer) {
-  const header = parseFcsHeader(arrayBuffer);
-  const text = parseFcsTextSegment(arrayBuffer, header.textStart, header.textEnd);
-
-  const nEvents = parseInt(text.get("$TOT") ?? "", 10);
-  const nParams = parseInt(text.get("$PAR") ?? "", 10);
-  if (!Number.isFinite(nEvents) || nEvents <= 0) throw new Error("Invalid $TOT in FCS TEXT segment");
-  if (!Number.isFinite(nParams) || nParams <= 0) throw new Error("Invalid $PAR in FCS TEXT segment");
-
-  const dataStart = parseInt(text.get("$BEGINDATA") ?? "", 10) || header.dataStart;
-  const dataEnd = parseInt(text.get("$ENDDATA") ?? "", 10) || header.dataEnd;
-  if (!Number.isFinite(dataStart) || !Number.isFinite(dataEnd) || dataEnd <= dataStart) {
-    throw new Error("Invalid DATA segment range");
-  }
-
-  const dataType = (text.get("$DATATYPE") ?? "I").toUpperCase();
-  const byteOrd = (text.get("$BYTEORD") ?? "1,2,3,4").trim();
-  const littleEndian = byteOrd === "1,2,3,4" || byteOrd === "1,2";
-
-  const params = [];
-  const bits = [];
-  for (let p = 1; p <= nParams; p++) {
-    const label = (text.get(`$P${p}S`) ?? text.get(`$P${p}N`) ?? `P${p}`).trim();
-    const range = parseInt(text.get(`$P${p}R`) ?? "", 10);
-    const b = parseInt(text.get(`$P${p}B`) ?? "", 10);
-    params.push({ label, range: Number.isFinite(range) ? range : null });
-    bits.push(Number.isFinite(b) ? b : null);
-  }
-
-  const previewN = Math.min(10_000, nEvents);
-  const previewIndices = makePreviewIndices(nEvents, previewN);
-  const preview = {
-    n: previewN,
-    channels: Array.from({ length: nParams }, () => new Float32Array(previewN)),
-  };
-
-  const dv = new DataView(arrayBuffer, dataStart, dataEnd - dataStart + 1);
-  const bytesPerParam = bits.map((b) => bytesForParam(dataType, b));
-  const bytesPerEvent = bytesPerParam.reduce((a, b) => a + b, 0);
-  const expectedBytes = bytesPerEvent * nEvents;
-  if (dv.byteLength < expectedBytes) {
-    throw new Error(`DATA segment too small (need ${expectedBytes} bytes, got ${dv.byteLength})`);
-  }
-
-  // Parse only preview points without storing full matrix.
-  let previewWrite = 0;
-  let nextEventIndex = previewIndices[previewWrite] ?? null;
-
-  for (let e = 0; e < nEvents; e++) {
-    if (nextEventIndex !== e) continue;
-
-    const eventOffset = e * bytesPerEvent;
-    let off = eventOffset;
-    for (let p = 0; p < nParams; p++) {
-      preview.channels[p][previewWrite] = readValue(dv, off, dataType, bytesPerParam[p], littleEndian);
-      off += bytesPerParam[p];
-    }
-
-    previewWrite++;
-    if (previewWrite >= previewN) break;
-    nextEventIndex = previewIndices[previewWrite] ?? null;
-  }
-
-  // Optional SPILL/SPILLOVER parse (not used yet; reserved for future iteration).
-  const spill = parseSpill(text, nParams);
-
-  return { nEvents, params, preview, spill };
-}
-
-export function parseFcsHeader(arrayBuffer) {
-  const bytes = new Uint8Array(arrayBuffer, 0, Math.min(58, arrayBuffer.byteLength));
-  if (bytes.length < 58) throw new Error("FCS header too short");
-  const headerStr = decodeLatin1(bytes);
+export function parseFcsHeader(buffer) {
+  const textDecoder = new TextDecoder("ascii");
+  // Ensure we have enough bytes
+  if (buffer.byteLength < 58) throw new Error("File too short to be FCS");
+  
+  const headerBytes = new Uint8Array(buffer, 0, 58);
+  const headerStr = textDecoder.decode(headerBytes);
+  
   const version = headerStr.slice(0, 6).trim();
-  if (!version.startsWith("FCS")) throw new Error("Not an FCS file (missing 'FCS' magic)");
-
   const textStart = parseInt(headerStr.slice(10, 18).trim(), 10);
   const textEnd = parseInt(headerStr.slice(18, 26).trim(), 10);
   const dataStart = parseInt(headerStr.slice(26, 34).trim(), 10);
   const dataEnd = parseInt(headerStr.slice(34, 42).trim(), 10);
-  const analysisStart = parseInt(headerStr.slice(42, 50).trim(), 10);
-  const analysisEnd = parseInt(headerStr.slice(50, 58).trim(), 10);
+  
+  return { version, textStart, textEnd, dataStart, dataEnd };
+}
 
-  if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) {
-    throw new Error("Invalid TEXT segment range in FCS header");
+export function parseFcsText(buffer, textStart, textEnd) {
+  // Safe slice
+  if (textStart >= buffer.byteLength || textEnd >= buffer.byteLength) {
+    throw new Error("Text segment out of bounds");
   }
+  const textDecoder = new TextDecoder("utf-8"); // Try UTF-8, fallback usually works for ASCII
+  const textBytes = new Uint8Array(buffer, textStart, textEnd - textStart + 1);
+  const textStr = textDecoder.decode(textBytes);
+  
+  const delimiter = textStr[0];
+  const parts = textStr.split(delimiter);
+  const keywords = {};
+  
+  for (let i = 1; i < parts.length - 1; i += 2) {
+    const key = parts[i].toUpperCase();
+    const val = parts[i + 1];
+    keywords[key] = val;
+  }
+  
+  return keywords;
+}
 
+export async function parseFcsFile(buffer) {
+  const header = parseFcsHeader(buffer);
+  const keywords = parseFcsText(buffer, header.textStart, header.textEnd);
+  
+  let dataStart = header.dataStart;
+  let dataEnd = header.dataEnd;
+  
+  if (dataStart === 0 && keywords["$BEGINDATA"]) {
+    dataStart = parseInt(keywords["$BEGINDATA"], 10);
+  }
+  if (dataEnd === 0 && keywords["$ENDDATA"]) {
+    dataEnd = parseInt(keywords["$ENDDATA"], 10);
+  }
+  
+  const par = parseInt(keywords["$PAR"], 10);
+  const tot = parseInt(keywords["$TOT"], 10);
+  const datatype = keywords["$DATATYPE"] || "I";
+  const byteord = keywords["$BYTEORD"];
+  
+  // 1,2,3,4 = Little Endian? No.
+  // 1,2,3,4 usually means Big Endian (Network order).
+  // 4,3,2,1 usually means Little Endian (Intel).
+  // Check standard:
+  // FCS3.1: "1,2,3,4" means Big Endian. "4,3,2,1" means Little Endian.
+  const isLittleEndian = byteord === "4,3,2,1";
+  
+  const params = [];
+  let totalBits = 0;
+  
+  for (let i = 1; i <= par; i++) {
+    const name = keywords[`$P${i}N`] || `Param ${i}`;
+    const label = keywords[`$P${i}S`] || name;
+    const bits = parseInt(keywords[`$P${i}B`], 10);
+    const range = parseFloat(keywords[`$P${i}R`]);
+    params.push({ index: i - 1, name, label, bits, range });
+    totalBits += bits;
+  }
+  
+  const dataView = new DataView(buffer);
+  const eventSize = totalBits / 8; 
+  
+  // Decide reader
+  let readValue;
+  let bytesPerValue;
+  
+  if (datatype === "F") {
+    // Float is usually 32-bit
+    bytesPerValue = 4;
+    readValue = (offset) => dataView.getFloat32(offset, isLittleEndian);
+  } else if (datatype === "D") {
+    // Double is 64-bit
+    bytesPerValue = 8;
+    readValue = (offset) => dataView.getFloat64(offset, isLittleEndian);
+  } else if (datatype === "I") {
+    // Integer can vary per parameter in theory, but usually uniform.
+    // Assuming uniform for MVP.
+    const bits = params[0].bits;
+    bytesPerValue = bits / 8;
+    if (bits === 8) readValue = (offset) => dataView.getUint8(offset);
+    else if (bits === 16) readValue = (offset) => dataView.getUint16(offset, isLittleEndian);
+    else if (bits === 32) readValue = (offset) => dataView.getUint32(offset, isLittleEndian);
+    else throw new Error(`Unsupported bit depth for integer: ${bits}`);
+  } else {
+    throw new Error(`Unsupported datatype: ${datatype}`);
+  }
+  
+  // Preview
+  const PREVIEW_LIMIT = 2000;
+  const nPreview = Math.min(tot, PREVIEW_LIMIT);
+  const stride = Math.floor(tot / nPreview) || 1;
+  
+  const channelData = params.map(() => new Float32Array(nPreview));
+  
+  for (let i = 0; i < nPreview; i++) {
+    const eventIndex = i * stride;
+    const eventOffset = dataStart + eventIndex * par * bytesPerValue;
+    
+    if (eventOffset + par * bytesPerValue > buffer.byteLength) break;
+    
+    for (let p = 0; p < par; p++) {
+      channelData[p][i] = readValue(eventOffset + p * bytesPerValue);
+    }
+  }
+  
   return {
-    version,
-    textStart,
-    textEnd,
-    dataStart: Number.isFinite(dataStart) ? dataStart : 0,
-    dataEnd: Number.isFinite(dataEnd) ? dataEnd : 0,
-    analysisStart: Number.isFinite(analysisStart) ? analysisStart : 0,
-    analysisEnd: Number.isFinite(analysisEnd) ? analysisEnd : 0,
+    version: header.version,
+    nEvents: tot,
+    params,
+    spill: keywords["$SPILLOVER"] || keywords["$SPILL"],
+    preview: {
+      n: nPreview,
+      channels: channelData,
+    }
   };
 }
-
-export function parseFcsTextSegment(arrayBuffer, textStart, textEnd) {
-  const rawBytes = new Uint8Array(arrayBuffer, textStart, textEnd - textStart + 1);
-  const raw = decodeLatin1(rawBytes);
-  if (raw.length < 2) throw new Error("TEXT segment too short");
-  const delim = raw[0];
-
-  const tokens = [];
-  let cur = "";
-  for (let i = 1; i < raw.length; i++) {
-    const ch = raw[i];
-    if (ch !== delim) {
-      cur += ch;
-      continue;
-    }
-    const next = raw[i + 1];
-    if (next === delim) {
-      cur += delim;
-      i++;
-      continue;
-    }
-    tokens.push(cur);
-    cur = "";
-  }
-  tokens.push(cur);
-
-  const map = new Map();
-  for (let i = 0; i + 1 < tokens.length; i += 2) {
-    const k = tokens[i].trim().toUpperCase();
-    const v = tokens[i + 1];
-    if (!k) continue;
-    map.set(k, v);
-  }
-  return map;
-}
-
-function decodeLatin1(bytes) {
-  // TextDecoder('latin1') is widely supported and preserves byte values.
-  return new TextDecoder("latin1").decode(bytes);
-}
-
-function bytesForParam(dataType, bits) {
-  switch (dataType) {
-    case "F":
-      return 4;
-    case "D":
-      return 8;
-    case "I": {
-      const b = Number.isFinite(bits) ? bits : 16;
-      if (b <= 8) return 1;
-      if (b <= 16) return 2;
-      return 4;
-    }
-    default:
-      throw new Error(`Unsupported $DATATYPE: ${dataType}`);
-  }
-}
-
-function readValue(dv, offset, dataType, bytes, littleEndian) {
-  switch (dataType) {
-    case "F":
-      return dv.getFloat32(offset, littleEndian);
-    case "D":
-      return dv.getFloat64(offset, littleEndian);
-    case "I":
-      if (bytes === 1) return dv.getUint8(offset);
-      if (bytes === 2) return dv.getUint16(offset, littleEndian);
-      return dv.getUint32(offset, littleEndian);
-    default:
-      return NaN;
-  }
-}
-
-function makePreviewIndices(nEvents, previewN) {
-  if (previewN >= nEvents) return Uint32Array.from({ length: nEvents }, (_, i) => i);
-
-  // Deterministic-ish evenly spaced sample (better than pure random for MVP).
-  const out = new Uint32Array(previewN);
-  const step = nEvents / previewN;
-  for (let i = 0; i < previewN; i++) out[i] = Math.min(nEvents - 1, Math.floor(i * step));
-  return out;
-}
-
-function parseSpill(textMap, nParams) {
-  const spillRaw = textMap.get("SPILL") ?? textMap.get("$SPILL") ?? textMap.get("SPILLOVER") ?? textMap.get("$SPILLOVER");
-  if (!spillRaw) return null;
-  const parts = spillRaw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-  const n = Number.parseInt(parts[0] ?? "", 10);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  // Format: n, name1, name2, ..., v11, v12, ...
-  const valuesStart = 1 + n;
-  const values = parts.slice(valuesStart).map((s) => Number.parseFloat(s));
-  if (values.length < n * n) return null;
-  const mat = new Float32Array(nParams * nParams);
-  for (let r = 0; r < Math.min(n, nParams); r++) {
-    for (let c = 0; c < Math.min(n, nParams); c++) {
-      const v = values[r * n + c];
-      if (Number.isFinite(v) && r !== c) mat[r * nParams + c] = v;
-    }
-  }
-  return mat;
-}
-
