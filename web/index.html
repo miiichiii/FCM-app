@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FCM-app (CellQuest-like MVP)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-title">FCM-app</div>
+          <div class="brand-subtitle">CellQuest-like MVP (manual comp / multi-2D / gating)</div>
+        </div>
+
+        <section class="panel">
+          <h2>Data</h2>
+          <div id="dropZone" class="drop-zone" tabindex="0">
+            <div class="drop-title">Drop FCS here</div>
+            <div class="drop-subtitle">or choose a file</div>
+            <input id="fileInput" type="file" accept=".fcs" />
+          </div>
+          <button id="loadDemoBtn" class="btn">Load demo dataset</button>
+          <div class="kv">
+            <div class="k">File</div>
+            <div class="v" id="fileName">—</div>
+            <div class="k">Events</div>
+            <div class="v" id="eventCount">—</div>
+            <div class="k">Params</div>
+            <div class="v" id="paramCount">—</div>
+          </div>
+          <div id="largeEventWarning" class="warning" hidden></div>
+          <details class="details" open>
+            <summary>Parameters</summary>
+            <div id="paramList" class="param-list"></div>
+          </details>
+        </section>
+
+        <section class="panel">
+          <h2>Gate Hierarchy</h2>
+          <div class="row">
+            <button id="newGateBtn" class="btn">New rectangle gate</button>
+            <button id="clearAllGatesBtn" class="btn btn-secondary">Clear all</button>
+          </div>
+          <div id="gateHierarchyTree" class="gate-tree"></div>
+          <div class="hint">Drag on the active plot to create a gate on the selected population.</div>
+          <div id="gateEdit" class="gate-edit" hidden>
+            <div class="grid2">
+              <label class="field">
+                <div class="label">X min</div>
+                <input id="gateXMin" type="number" step="any" />
+              </label>
+              <label class="field">
+                <div class="label">X max</div>
+                <input id="gateXMax" type="number" step="any" />
+              </label>
+              <label class="field">
+                <div class="label">Y min</div>
+                <input id="gateYMin" type="number" step="any" />
+              </label>
+              <label class="field">
+                <div class="label">Y max</div>
+                <input id="gateYMax" type="number" step="any" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Compensation (manual)</h2>
+          <div class="grid2">
+            <label class="field">
+              <div class="label">From (i)</div>
+              <select id="compFrom"></select>
+            </label>
+            <label class="field">
+              <div class="label">To (j)</div>
+              <select id="compTo"></select>
+            </label>
+          </div>
+          <label class="field">
+            <div class="label">Coefficient (subtract i → j)</div>
+            <input id="compSlider" type="range" min="-1" max="1" step="0.001" value="0" />
+          </label>
+          <div class="row">
+            <div class="mono" id="compValue">0.000</div>
+            <button id="compResetBtn" class="btn btn-secondary">Reset pair</button>
+          </div>
+          <div class="row">
+            <button id="compResetAllBtn" class="btn btn-secondary">Reset all</button>
+            <button id="downloadCompBtn" class="btn btn-secondary">Save JSON</button>
+            <label class="btn btn-secondary file-btn">
+              Load JSON
+              <input id="uploadCompInput" type="file" accept="application/json,.json" />
+            </label>
+          </div>
+          <div class="hint" id="compDirtyHint" hidden>Preview updates immediately. Full-data updates require Apply-to-all.</div>
+
+          <div class="apply-box">
+            <div class="row">
+              <button id="applyAllBtn" class="btn">Apply-to-all (Worker)</button>
+              <button id="applyCancelBtn" class="btn btn-secondary" hidden>Cancel</button>
+            </div>
+            <div id="applyProgress" class="progress" hidden>
+              <div id="applyProgressBar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="row">
+              <div id="applyProgressText" class="mono"></div>
+              <div class="spacer"></div>
+              <div id="applyStatus" class="mono"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <details class="details" open>
+            <summary>Worst Pairs</summary>
+            <div id="worstPairsList" class="param-list"></div>
+          </details>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="row">
+            <button id="addPlotBtn" class="btn">Add plot</button>
+            <div class="spacer"></div>
+            <div class="mono" id="statusText">Drop an FCS file to begin.</div>
+          </div>
+        </header>
+        <div id="plots" class="plots"></div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "fcm-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/dev-server.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
