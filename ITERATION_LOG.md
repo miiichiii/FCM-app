@@ -50,7 +50,7 @@
   - Iteration 2 = P0/P1 fixes only
 
 ## Iteration 2 (Features)
-- Status: 🟡 In-progress
+- Status: ✅ Completed
 - Actions:
   - Implemented Density Mode: auto-switches for >500k events and uses the full dataset when available via the web worker.
   - Implemented Worst-Pairs panel: displays a sorted list of parameter pairs with the highest compensation coefficients.

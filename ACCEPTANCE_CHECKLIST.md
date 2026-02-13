@@ -37,4 +37,4 @@
 ## G. Docs / Delivery
 - [x] README has setup + usage + limitations
 - [x] Minimal tests exist (matrix apply + transforms + FCS header parse)
-- [ ] No P0/P1 issues left after critic review
+- [x] No P0/P1 issues left after critic review
