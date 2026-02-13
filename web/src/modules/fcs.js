@@ -15,7 +15,7 @@ export function parseFcsHeader(buffer) {
   return { version, textStart, textEnd, dataStart, dataEnd };
 }
 
-export function parseFcsText(buffer, textStart, textEnd) {
+export function parseFcsTextSegment(buffer, textStart, textEnd) {
   // Safe slice
   if (textStart >= buffer.byteLength || textEnd >= buffer.byteLength) {
     throw new Error("Text segment out of bounds");
@@ -23,112 +23,135 @@ export function parseFcsText(buffer, textStart, textEnd) {
   const textDecoder = new TextDecoder("utf-8"); // Try UTF-8, fallback usually works for ASCII
   const textBytes = new Uint8Array(buffer, textStart, textEnd - textStart + 1);
   const textStr = textDecoder.decode(textBytes);
-  
+
   const delimiter = textStr[0];
   const parts = textStr.split(delimiter);
-  const keywords = {};
-  
+  const keywords = new Map();
+
   for (let i = 1; i < parts.length - 1; i += 2) {
     const key = parts[i].toUpperCase();
     const val = parts[i + 1];
-    keywords[key] = val;
+    keywords.set(key, val);
   }
-  
+
   return keywords;
+}
+
+function parseFcsText(buffer, textStart, textEnd) {
+  const keywords = parseFcsTextSegment(buffer, textStart, textEnd);
+  return Object.fromEntries(keywords);
 }
 
 export async function parseFcsFile(buffer) {
   const header = parseFcsHeader(buffer);
-  const keywords = parseFcsText(buffer, header.textStart, header.textEnd);
-  
+  const keywords = parseFcsTextSegment(buffer, header.textStart, header.textEnd);
+
   let dataStart = header.dataStart;
   let dataEnd = header.dataEnd;
-  
-  if (dataStart === 0 && keywords["$BEGINDATA"]) {
-    dataStart = parseInt(keywords["$BEGINDATA"], 10);
+
+  if (dataStart === 0 && keywords.get("$BEGINDATA")) {
+    dataStart = parseInt(keywords.get("$BEGINDATA"), 10);
   }
-  if (dataEnd === 0 && keywords["$ENDDATA"]) {
-    dataEnd = parseInt(keywords["$ENDDATA"], 10);
+  if (dataEnd === 0 && keywords.get("$ENDDATA")) {
+    dataEnd = parseInt(keywords.get("$ENDDATA"), 10);
   }
-  
-  const par = parseInt(keywords["$PAR"], 10);
-  const tot = parseInt(keywords["$TOT"], 10);
-  const datatype = keywords["$DATATYPE"] || "I";
-  const byteord = keywords["$BYTEORD"];
-  
+
+  const par = parseInt(keywords.get("$PAR"), 10);
+  const tot = parseInt(keywords.get("$TOT"), 10);
+  const datatype = keywords.get("$DATATYPE") || "I";
+  const byteord = keywords.get("$BYTEORD");
+
   // 1,2,3,4 = Little Endian? No.
   // 1,2,3,4 usually means Big Endian (Network order).
   // 4,3,2,1 usually means Little Endian (Intel).
   // Check standard:
   // FCS3.1: "1,2,3,4" means Big Endian. "4,3,2,1" means Little Endian.
   const isLittleEndian = byteord === "4,3,2,1";
-  
+
   const params = [];
-  let totalBits = 0;
-  
+
   for (let i = 1; i <= par; i++) {
-    const name = keywords[`$P${i}N`] || `Param ${i}`;
-    const label = keywords[`$P${i}S`] || name;
-    const bits = parseInt(keywords[`$P${i}B`], 10);
-    const range = parseFloat(keywords[`$P${i}R`]);
+    const name = keywords.get(`$P${i}N`) || `Param ${i}`;
+    const label = keywords.get(`$P${i}S`) || name;
+    const bits = parseInt(keywords.get(`$P${i}B`), 10);
+    const range = parseFloat(keywords.get(`$P${i}R`));
     params.push({ index: i - 1, name, label, bits, range });
-    totalBits += bits;
   }
-  
+
   const dataView = new DataView(buffer);
-  const eventSize = totalBits / 8; 
-  
-  // Decide reader
-  let readValue;
-  let bytesPerValue;
-  
-  if (datatype === "F") {
-    // Float is usually 32-bit
-    bytesPerValue = 4;
-    readValue = (offset) => dataView.getFloat32(offset, isLittleEndian);
-  } else if (datatype === "D") {
-    // Double is 64-bit
-    bytesPerValue = 8;
-    readValue = (offset) => dataView.getFloat64(offset, isLittleEndian);
-  } else if (datatype === "I") {
-    // Integer can vary per parameter in theory, but usually uniform.
-    // Assuming uniform for MVP.
-    const bits = params[0].bits;
-    bytesPerValue = bits / 8;
-    if (bits === 8) readValue = (offset) => dataView.getUint8(offset);
-    else if (bits === 16) readValue = (offset) => dataView.getUint16(offset, isLittleEndian);
-    else if (bits === 32) readValue = (offset) => dataView.getUint32(offset, isLittleEndian);
-    else throw new Error(`Unsupported bit depth for integer: ${bits}`);
-  } else {
-    throw new Error(`Unsupported datatype: ${datatype}`);
-  }
-  
+
+  const paramReaders = params.map((p) => {
+    return createReader(dataView, datatype, p.bits, isLittleEndian);
+  });
+  const bytesPerParam = params.map((p) => {
+    return getBytesPerParam(datatype, p.bits);
+  });
+  const bytesPerEvent = bytesPerParam.reduce((a, b) => a + b, 0);
+
   // Preview
   const PREVIEW_LIMIT = 2000;
   const nPreview = Math.min(tot, PREVIEW_LIMIT);
   const stride = Math.floor(tot / nPreview) || 1;
-  
-  const channelData = params.map(() => new Float32Array(nPreview));
-  
+
+  const TArray = datatype === "D" ? Float64Array : Float32Array;
+  const channelData = params.map(() => new TArray(nPreview));
+
   for (let i = 0; i < nPreview; i++) {
     const eventIndex = i * stride;
-    const eventOffset = dataStart + eventIndex * par * bytesPerValue;
-    
-    if (eventOffset + par * bytesPerValue > buffer.byteLength) break;
-    
+    const eventOffset = dataStart + eventIndex * bytesPerEvent;
+
+    if (eventOffset + bytesPerEvent > buffer.byteLength) break;
+
+    let offsetInEvent = 0;
     for (let p = 0; p < par; p++) {
-      channelData[p][i] = readValue(eventOffset + p * bytesPerValue);
+      channelData[p][i] = paramReaders[p](eventOffset + offsetInEvent);
+      offsetInEvent += bytesPerParam[p];
     }
   }
-  
+
   return {
     version: header.version,
     nEvents: tot,
     params,
-    spill: keywords["$SPILLOVER"] || keywords["$SPILL"],
+    spill: keywords.get("$SPILLOVER") || keywords.get("$SPILL"),
     preview: {
       n: nPreview,
       channels: channelData,
-    }
+    },
   };
 }
+
+function getBytesPerParam(dataType, bits) {
+  switch (dataType) {
+    case "F":
+      return 4;
+    case "D":
+      return 8;
+    case "I": {
+      if (bits <= 8) return 1;
+      if (bits <= 16) return 2;
+      if (bits <= 32) return 4;
+      throw new Error(`Unsupported bit depth for integer: ${bits}`);
+    }
+    default:
+      throw new Error(`Unsupported datatype: ${dataType}`);
+  }
+}
+
+function createReader(dataView, dataType, bits, littleEndian) {
+  switch (dataType) {
+    case "F":
+      return (offset) => dataView.getFloat32(offset, littleEndian);
+    case "D":
+      return (offset) => dataView.getFloat64(offset, littleEndian);
+    case "I": {
+      if (bits <= 8) return (offset) => dataView.getUint8(offset);
+      if (bits <= 16) return (offset) => dataView.getUint16(offset, littleEndian);
+      if (bits <= 32) return (offset) => dataView.getUint32(offset, littleEndian);
+      throw new Error(`Unsupported bit depth for integer: ${bits}`);
+    }
+    default:
+      throw new Error(`Unsupported datatype: ${dataType}`);
+  }
+}
+

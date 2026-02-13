@@ -100,7 +100,7 @@ async function applyToAllEvents(msg) {
 
   const dataType = (text.get("$DATATYPE") ?? "I").toUpperCase();
   const byteOrd = (text.get("$BYTEORD") ?? "1,2,3,4").trim();
-  const littleEndian = byteOrd === "1,2,3,4" || byteOrd === "1,2";
+  const littleEndian = byteOrd === "4,3,2,1";
 
   const bits = [];
   for (let p = 1; p <= nParams; p++) {
@@ -120,8 +120,10 @@ async function applyToAllEvents(msg) {
   postMessage({ type: "apply-progress", done: 0, total: nEvents, phase: "applying" });
 
   const nonZeroByTo = buildNonZeroByTo(coeffs, nParams);
-  const channels = Array.from({ length: nParams }, () => new Float32Array(nEvents));
-  const eventVals = new Float32Array(nParams);
+
+  const TArray = dataType === "D" ? Float64Array : Float32Array;
+  const channels = Array.from({ length: nParams }, () => new TArray(nEvents));
+  const eventVals = new TArray(nParams);
 
   const chunk = 8192;
   for (let e = 0; e < nEvents; e++) {
