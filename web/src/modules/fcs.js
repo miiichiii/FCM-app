@@ -61,11 +61,7 @@ export async function parseFcsFile(buffer) {
   const datatype = keywords.get("$DATATYPE") || "I";
   const byteord = keywords.get("$BYTEORD");
 
-  // 1,2,3,4 = Little Endian? No.
-  // 1,2,3,4 usually means Big Endian (Network order).
-  // 4,3,2,1 usually means Little Endian (Intel).
-  // Check standard:
-  // FCS3.1: "1,2,3,4" means Big Endian. "4,3,2,1" means Little Endian.
+  // FCS standard: "1,2,3,4" is Big Endian, "4,3,2,1" is Little Endian.
   const isLittleEndian = byteord === "4,3,2,1";
 
   const params = [];
