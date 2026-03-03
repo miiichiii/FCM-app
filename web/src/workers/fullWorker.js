@@ -1,4 +1,5 @@
 import { parseFcsHeader, parseFcsTextSegment } from "../modules/fcs.js";
+import { parseFcsByteOrder, resolveFcsEndian } from "../modules/fcsEndian.js";
 import { transformValue } from "../modules/transforms.js";
 
 let abortFlag = false;
@@ -100,22 +101,36 @@ async function applyToAllEvents(msg) {
 
   const dataType = (text.get("$DATATYPE") ?? "I").toUpperCase();
   const byteOrd = (text.get("$BYTEORD") ?? "1,2,3,4").trim();
-  const littleEndian = byteOrd === "4,3,2,1";
+  const declaredLittleEndian = parseFcsByteOrder(byteOrd);
 
   const bits = [];
+  const ranges = [];
   for (let p = 1; p <= nParams; p++) {
     const b = parseInt(text.get(`$P${p}B`) ?? "", 10);
     bits.push(Number.isFinite(b) ? b : null);
+    const r = parseFloat(text.get(`$P${p}R`) ?? "");
+    ranges.push(Number.isFinite(r) ? r : null);
   }
 
   const bytesPerParam = bits.map((b) => bytesForParam(dataType, b));
   const bytesPerEvent = bytesPerParam.reduce((a, b) => a + b, 0);
 
-  const dv = new DataView(buf, dataStart, dataEnd - dataStart + 1);
   const expectedBytes = bytesPerEvent * nEvents;
-  if (dv.byteLength < expectedBytes) {
-    throw new Error(`DATA segment too small (need ${expectedBytes} bytes, got ${dv.byteLength})`);
+  if (dataStart + expectedBytes > buf.byteLength) {
+    throw new Error(`DATA segment too small (need ${expectedBytes} bytes from offset ${dataStart}, got ${buf.byteLength - dataStart})`);
   }
+  const dv = new DataView(buf);
+  const littleEndian = resolveFcsEndian({
+    dataView: dv,
+    dataStart,
+    bufferByteLength: buf.byteLength,
+    dataType,
+    bytesPerParam,
+    paramRanges: ranges,
+    nEvents,
+    bytesPerEvent,
+    declaredLittleEndian,
+  });
 
   postMessage({ type: "apply-progress", done: 0, total: nEvents, phase: "applying" });
 
@@ -133,9 +148,10 @@ async function applyToAllEvents(msg) {
     }
 
     const eventOffset = e * bytesPerEvent;
-    let off = eventOffset;
+    const absoluteEventOffset = dataStart + eventOffset;
+    let off = 0;
     for (let p = 0; p < nParams; p++) {
-      eventVals[p] = readValue(dv, off, dataType, bytesPerParam[p], littleEndian);
+      eventVals[p] = readValue(dv, absoluteEventOffset + off, dataType, bytesPerParam[p], littleEndian);
       off += bytesPerParam[p];
     }
 

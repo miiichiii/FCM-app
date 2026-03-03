@@ -40,7 +40,9 @@ export function setDataset(state, dataset) {
 
 export function setStatusText(text) {
   const statusEl = document.getElementById("statusText");
-  statusEl.textContent = text;
+  if (statusEl) statusEl.textContent = text;
+  const sidebarStatusEl = document.getElementById("statusTextSidebar");
+  if (sidebarStatusEl) sidebarStatusEl.textContent = text;
 }
 
 export function updateAllPlots(state) {

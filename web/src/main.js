@@ -5,6 +5,8 @@ import { createPlotCard } from "./modules/plotCard.js";
 import { createCompModel, downloadCompJson, loadCompJsonFromFile } from "./modules/comp.js";
 import { armGating, addGate, clearAllGates, getGateById } from "./modules/gate.js";
 
+globalThis.__FCM_APP_BOOTED = true;
+
 const state = createDefaultState();
 const plotsEl = document.getElementById("plots");
 
@@ -33,7 +35,7 @@ function refreshLargeEventWarning() {
   }
 
   const previewN = ds.preview?.n ?? 0;
-  const canApply = Boolean(ds.sourceFile && state.comp);
+  const canApply = Boolean(ds.sourceFile && state.comp && ds.nEvents > 0);
   const upToDate = state.fullApply.status === "done" && state.fullApply.appliedRevision === state.compRevision;
   const applyText = canApply ? (upToDate ? "Full-data is applied." : "Click Apply-to-all for full-density.") : "Full apply is unavailable for demo.";
 
@@ -140,7 +142,7 @@ function refreshWorstPairsUI() {
 
 
 function refreshApplyUI() {
-  const canApply = Boolean(state.dataset?.sourceFile && state.comp);
+  const canApply = Boolean(state.dataset?.sourceFile && state.comp && (state.dataset.nEvents ?? 0) > 0);
   const running = state.fullApply.status === "running";
   const hasApplied = state.fullApply.status === "done";
   const upToDate = hasApplied && state.fullApply.appliedRevision === state.compRevision;
@@ -151,7 +153,9 @@ function refreshApplyUI() {
   if (!canApply) {
     applyProgressEl.hidden = true;
     applyProgressTextEl.textContent = "";
-    applyStatusEl.textContent = state.dataset ? "Load an FCS file to enable" : "";
+    applyStatusEl.textContent = state.dataset
+      ? ((state.dataset.nEvents ?? 0) > 0 ? "Load an FCS file to enable" : "No events in file")
+      : "";
     refreshLargeEventWarning();
     return;
   }
@@ -311,7 +315,11 @@ async function loadDatasetFromFile(file) {
   refreshApplyUI();
   setCompControlsEnabled(true);
   ensureTwoPlots();
-  setStatusText(`Loaded ${file.name}`);
+  if (dataset.nEvents > 0) {
+    setStatusText(`Loaded ${file.name} (${dataset.nEvents.toLocaleString()} events)`);
+  } else {
+    setStatusText(`Loaded ${file.name} (0 events: no plot points to draw)`);
+  }
 }
 
 function loadDemo() {
@@ -341,6 +349,9 @@ function loadDemo() {
 // Data drop zone
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
+const loadDemoBtn = document.getElementById("loadDemoBtn");
+if (fileInput) fileInput.disabled = false;
+if (loadDemoBtn) loadDemoBtn.disabled = false;
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
@@ -372,7 +383,9 @@ fileInput.addEventListener("change", async () => {
 });
 
 // Demo
-document.getElementById("loadDemoBtn").addEventListener("click", () => loadDemo());
+if (loadDemoBtn) {
+  loadDemoBtn.addEventListener("click", () => loadDemo());
+}
 
 // Plots
 document.getElementById("addPlotBtn").addEventListener("click", () => {
@@ -580,7 +593,7 @@ function handleFullWorkerMessage(msg) {
 }
 
 async function startApplyToAll() {
-  if (!state.dataset?.sourceFile || !state.comp) return;
+  if (!state.dataset?.sourceFile || !state.comp || (state.dataset.nEvents ?? 0) <= 0) return;
   const worker = ensureFullWorker();
   state.fullApply.status = "running";
   state.fullApply.phase = "starting";

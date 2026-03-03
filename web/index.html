@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FCM-app (CellQuest-like MVP)</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app">
@@ -19,9 +19,9 @@
           <div id="dropZone" class="drop-zone" tabindex="0">
             <div class="drop-title">Drop FCS here</div>
             <div class="drop-subtitle">or choose a file</div>
-            <input id="fileInput" type="file" accept=".fcs" />
+            <input id="fileInput" type="file" accept=".fcs" disabled />
           </div>
-          <button id="loadDemoBtn" class="btn">Load demo dataset</button>
+          <button id="loadDemoBtn" class="btn" disabled>Load demo dataset</button>
           <div class="kv">
             <div class="k">File</div>
             <div class="v" id="fileName">—</div>
@@ -35,6 +35,7 @@
             <summary>Parameters</summary>
             <div id="paramList" class="param-list"></div>
           </details>
+          <div class="status-box mono" id="statusTextSidebar">Drop an FCS file to begin.</div>
         </section>
 
         <section class="panel">
@@ -136,6 +137,31 @@
       </main>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <script>
+      window.__FCM_APP_BOOTED = false;
+      if (location.protocol === "file:") {
+        const status = document.getElementById("statusText");
+        const statusSidebar = document.getElementById("statusTextSidebar");
+        const msg = "file:// 直開きでは動作しません。ターミナルで `npm run dev` 後、http://127.0.0.1:5173 を開いてください。";
+        if (status) {
+          status.textContent = msg;
+        }
+        if (statusSidebar) {
+          statusSidebar.textContent = msg;
+        }
+      }
+    </script>
+    <script type="module" src="./src/main.js"></script>
+    <script>
+      setTimeout(() => {
+        if (window.__FCM_APP_BOOTED) return;
+        const msg =
+          "アプリ本体の読み込みに失敗しました。`npm run dev` で http://127.0.0.1:5173 を開くか、Console の赤エラーを確認してください。";
+        const status = document.getElementById("statusText");
+        const statusSidebar = document.getElementById("statusTextSidebar");
+        if (status) status.textContent = msg;
+        if (statusSidebar) statusSidebar.textContent = msg;
+      }, 1200);
+    </script>
   </body>
 </html>

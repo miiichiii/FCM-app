@@ -4,6 +4,22 @@ A lightweight, browser-based Flow Cytometry analysis tool focused on **manual co
 
 👉 **Launch App:** [https://miiichiii.github.io/FCM-app/](https://miiichiii.github.io/FCM-app/)
 
+## Local Launch (Important)
+
+Do **not** open `index.html` directly with `file://`.
+
+Run from terminal:
+
+```bash
+cd /Users/michito/Documents/GitHub/FCM-app
+npm install
+npm run dev
+```
+
+Then open:
+
+`http://127.0.0.1:5173`
+
 ## Key Features
 
 ### 1. 📂 Drag & Drop Import

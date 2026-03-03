@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseFcsFile, parseFcsHeader } from "../web/src/modules/fcs.js";
+import { parseFcsFile, parseFcsHeader, parseFcsTextSegment } from "../web/src/modules/fcs.js";
 
 function pad8(n) {
   return String(n).padStart(8, " ");
@@ -23,6 +23,17 @@ test("fcs: parseFcsHeader reads segment offsets", () => {
   assert.equal(h.textEnd, 80);
   assert.equal(h.dataStart, 81);
   assert.equal(h.dataEnd, 88);
+});
+
+test("fcs: parseFcsTextSegment supports escaped delimiter in values", () => {
+  const text = "|$TOT|2|$PAR|1|$P1N|FSC||A|";
+  const bytes = encodeLatin1(text);
+  const buf = new ArrayBuffer(bytes.length);
+  new Uint8Array(buf).set(bytes);
+  const keywords = parseFcsTextSegment(buf, 0, bytes.length - 1);
+  assert.equal(keywords.get("$TOT"), "2");
+  assert.equal(keywords.get("$PAR"), "1");
+  assert.equal(keywords.get("$P1N"), "FSC|A");
 });
 
 test("fcs: parseFcsFile reads preview points from DATA segment", async () => {
@@ -82,3 +93,35 @@ test("fcs: parseFcsFile reads preview points from DATA segment", async () => {
   assert.deepEqual(Array.from(parsed.preview.channels[1]), [2000, 2500]);
 });
 
+test("fcs: parseFcsFile keeps zero-event files as zero events", async () => {
+  const delim = "|";
+  let text = delim;
+  text += "$TOT" + delim + "0" + delim;
+  text += "$PAR" + delim + "2" + delim;
+  text += "$DATATYPE" + delim + "F" + delim;
+  text += "$BYTEORD" + delim + "1,2,3,4" + delim;
+  text += "$P1N" + delim + "FSC-A" + delim;
+  text += "$P1B" + delim + "32" + delim;
+  text += "$P2N" + delim + "SSC-A" + delim;
+  text += "$P2B" + delim + "32" + delim;
+  text += "$BEGINDATA" + delim + "0" + delim;
+  text += "$ENDDATA" + delim + "0" + delim;
+
+  const textStart = 58;
+  const textBytes = encodeLatin1(text);
+  const textEnd = textStart + textBytes.length - 1;
+  const headerStr =
+    "FCS3.0    " + pad8(textStart) + pad8(textEnd) + pad8(0) + pad8(0) + pad8(0) + pad8(0);
+
+  // Include extra trailing bytes to ensure parser does not infer fake events.
+  const file = new Uint8Array(textEnd + 1 + 256);
+  file.set(encodeLatin1(headerStr), 0);
+  file.set(textBytes, textStart);
+
+  const parsed = await parseFcsFile(file.buffer);
+  assert.equal(parsed.nEvents, 0);
+  assert.equal(parsed.preview.n, 0);
+  assert.equal(parsed.params.length, 2);
+  assert.equal(parsed.preview.channels[0].length, 0);
+  assert.equal(parsed.preview.channels[1].length, 0);
+});

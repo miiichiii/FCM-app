@@ -1,6 +1,6 @@
 export function createPlotState(init = {}) {
   return {
-    id: crypto.randomUUID(),
+    id: makePlotId(),
     xParam: Number.isFinite(init.xParam) ? init.xParam : 0,
     yParam: Number.isFinite(init.yParam) ? init.yParam : 1,
     scale: init.scale ?? "linear",
@@ -14,3 +14,9 @@ export function createPlotState(init = {}) {
   };
 }
 
+function makePlotId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `plot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
