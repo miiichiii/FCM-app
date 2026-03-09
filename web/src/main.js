@@ -2,10 +2,17 @@ import { createDefaultState, setDataset, setStatusText, updateAllPlots } from ".
 import { parseFcsFile } from "./modules/fcs.js";
 import { createDemoDataset } from "./modules/demo.js";
 import { createPlotCard } from "./modules/plotCard.js";
-import { createCompModel, downloadCompJson, loadCompJsonFromFile } from "./modules/comp.js";
+import {
+  createCompModel,
+  downloadCompJson,
+  loadCompJsonFromFile,
+  downloadCompCsv,
+  loadCompCsvFromFile,
+} from "./modules/comp.js";
 import { armGating, addGate, clearAllGates, getGateById } from "./modules/gate.js";
 import { createSingleStainRecord, getCompRelevantParamIndices } from "./modules/singleStain.js";
 import { renderSingleStainReview } from "./modules/singleStainReview.js";
+import { initTheme, toggleTheme, getCurrentTheme } from "./modules/theme.js";
 
 globalThis.__FCM_APP_BOOTED = true;
 
@@ -25,10 +32,21 @@ const singleStainListEl = document.getElementById("singleStainList");
 const singleStainSectionEl = document.getElementById("singleStainSection");
 const singleStainGridEl = document.getElementById("singleStainGrid");
 const singleStainSummaryEl = document.getElementById("singleStainSummary");
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+const compMatrixWrapEl = document.getElementById("compMatrixWrap");
+const compMatrixTableEl = document.getElementById("compMatrixTable");
+const toggleMatrixBtn = document.getElementById("toggleMatrixBtn");
+
+initTheme();
 
 function defaultPlotMode() {
   const n = state.dataset?.nEvents ?? 0;
   return n >= LARGE_EVENT_THRESHOLD ? "density" : "scatter";
+}
+
+function refreshThemeUI() {
+  if (!themeToggleBtn) return;
+  themeToggleBtn.textContent = `Theme: ${getCurrentTheme() === "dark" ? "Dark" : "Light"}`;
 }
 
 function refreshLargeEventWarning() {
@@ -114,6 +132,58 @@ function refreshCompUI() {
   slider.value = String(v);
   valueEl.textContent = v.toFixed(3);
   dirtyHint.hidden = !state.comp.dirty;
+}
+
+function refreshCompMatrixUI() {
+  if (!compMatrixTableEl) return;
+  compMatrixTableEl.innerHTML = "";
+
+  if (!state.dataset || !state.comp) {
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "matrix-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.textContent = "X \\ Y";
+  headRow.appendChild(corner);
+
+  for (let from = 0; from < state.dataset.params.length; from++) {
+    const th = document.createElement("th");
+    th.textContent = state.dataset.params[from]?.label ?? `#${from + 1}`;
+    headRow.appendChild(th);
+  }
+
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let to = 0; to < state.dataset.params.length; to++) {
+    const row = document.createElement("tr");
+    const rowLabel = document.createElement("th");
+    rowLabel.textContent = state.dataset.params[to]?.label ?? `#${to + 1}`;
+    row.appendChild(rowLabel);
+
+    for (let from = 0; from < state.dataset.params.length; from++) {
+      const td = document.createElement("td");
+      const coeff = from === to ? 0 : state.comp.getCoeff(from, to);
+      td.textContent = coeff.toFixed(3);
+      if (state.comp.selectedFrom === from && state.comp.selectedTo === to) {
+        td.classList.add("active");
+      }
+      if (Math.abs(coeff) > 0.0005) {
+        td.classList.add("nonzero");
+      }
+      row.appendChild(td);
+    }
+    tbody.appendChild(row);
+  }
+
+  table.appendChild(tbody);
+  compMatrixTableEl.appendChild(table);
 }
 
 function refreshWorstPairsUI() {
@@ -212,8 +282,37 @@ function setCompPairFromSingleStain(fromIndex, toIndex) {
   state.comp.selectedFrom = fromIndex;
   state.comp.selectedTo = toIndex;
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshSingleStainReviewUI();
   setStatusText(`Comp pair set: ${state.dataset.params[fromIndex]?.label ?? fromIndex} -> ${state.dataset.params[toIndex]?.label ?? toIndex}`);
+}
+
+function applyCompCoeff(fromIndex, toIndex, value, { refreshReview = true } = {}) {
+  if (!state.comp) return;
+  state.comp.selectedFrom = fromIndex;
+  state.comp.selectedTo = toIndex;
+  state.comp.setCoeff(fromIndex, toIndex, value);
+  state.compRevision++;
+  refreshCompUI();
+  refreshCompMatrixUI();
+  refreshApplyUI();
+  refreshWorstPairsUI();
+  updateAllPlots(state);
+  if (refreshReview) refreshSingleStainReviewUI();
+}
+
+function resetCompPair(fromIndex, toIndex, { refreshReview = true } = {}) {
+  if (!state.comp) return;
+  state.comp.selectedFrom = fromIndex;
+  state.comp.selectedTo = toIndex;
+  state.comp.resetPair(fromIndex, toIndex);
+  state.compRevision++;
+  refreshCompUI();
+  refreshCompMatrixUI();
+  refreshApplyUI();
+  refreshWorstPairsUI();
+  updateAllPlots(state);
+  if (refreshReview) refreshSingleStainReviewUI();
 }
 
 function syncCompPairToSingleStainSample(sample) {
@@ -225,6 +324,7 @@ function syncCompPairToSingleStainSample(sample) {
   state.comp.selectedFrom = sample.stainedReferenceIndex;
   state.comp.selectedTo = nextTo;
   refreshCompUI();
+  refreshCompMatrixUI();
 }
 
 function refreshSingleStainListUI() {
@@ -322,7 +422,9 @@ function refreshSingleStainReviewUI() {
     container: singleStainGridEl,
     sample,
     currentPair: state.comp ? { from: state.comp.selectedFrom, to: state.comp.selectedTo } : null,
+    getCoeff: (fromIndex, toIndex) => state.comp?.getCoeff(fromIndex, toIndex) ?? 0,
     onPickPair: setCompPairFromSingleStain,
+    onChangeCoeff: (fromIndex, toIndex, value) => applyCompCoeff(fromIndex, toIndex, value, { refreshReview: false }),
   });
 }
 
@@ -499,6 +601,7 @@ async function loadDatasetFromFile(file) {
   syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshWorstPairsUI();
   refreshSingleStainListUI();
   refreshSingleStainReviewUI();
@@ -531,6 +634,7 @@ function loadDemo() {
   syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshWorstPairsUI();
   refreshSingleStainListUI();
   refreshSingleStainReviewUI();
@@ -631,6 +735,15 @@ if (singleStainInput) {
 if (loadDemoBtn) {
   loadDemoBtn.addEventListener("click", () => loadDemo());
 }
+if (themeToggleBtn) {
+  refreshThemeUI();
+  themeToggleBtn.addEventListener("click", () => {
+    toggleTheme();
+    refreshThemeUI();
+    updateAllPlots(state);
+    refreshSingleStainReviewUI();
+  });
+}
 
 // Plots
 document.getElementById("addPlotBtn").addEventListener("click", () => {
@@ -668,12 +781,14 @@ compFrom.addEventListener("change", () => {
   if (!state.comp) return;
   state.comp.selectedFrom = Number(compFrom.value);
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshSingleStainReviewUI();
 });
 compTo.addEventListener("change", () => {
   if (!state.comp) return;
   state.comp.selectedTo = Number(compTo.value);
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshSingleStainReviewUI();
 });
 compSlider.addEventListener("input", () => {
@@ -681,29 +796,18 @@ compSlider.addEventListener("input", () => {
   const i = state.comp.selectedFrom;
   const j = state.comp.selectedTo;
   const v = Number(compSlider.value);
-  state.comp.setCoeff(i, j, v);
-  state.compRevision++;
-  compValue.textContent = v.toFixed(3);
-  document.getElementById("compDirtyHint").hidden = !state.comp.dirty;
-  refreshApplyUI();
-  refreshWorstPairsUI();
-  updateAllPlots(state);
+  applyCompCoeff(i, j, v);
 });
 document.getElementById("compResetBtn").addEventListener("click", () => {
   if (!state.comp) return;
-  state.comp.resetPair(state.comp.selectedFrom, state.comp.selectedTo);
-  state.compRevision++;
-  refreshCompUI();
-  refreshSingleStainReviewUI();
-  refreshApplyUI();
-  refreshWorstPairsUI();
-  updateAllPlots(state);
+  resetCompPair(state.comp.selectedFrom, state.comp.selectedTo);
 });
 document.getElementById("compResetAllBtn").addEventListener("click", () => {
   if (!state.comp) return;
   state.comp.resetAll();
   state.compRevision++;
   refreshCompUI();
+  refreshCompMatrixUI();
   refreshSingleStainReviewUI();
   refreshApplyUI();
   refreshWorstPairsUI();
@@ -721,6 +825,7 @@ document.getElementById("uploadCompInput").addEventListener("change", async (e) 
     await loadCompJsonFromFile(state.comp, file);
     state.compRevision++;
     refreshCompUI();
+    refreshCompMatrixUI();
     refreshSingleStainReviewUI();
     refreshApplyUI();
     refreshWorstPairsUI();
@@ -733,6 +838,38 @@ document.getElementById("uploadCompInput").addEventListener("change", async (e) 
     e.target.value = "";
   }
 });
+document.getElementById("exportCompCsvBtn").addEventListener("click", () => {
+  if (!state.comp || !state.dataset) return;
+  downloadCompCsv(state.comp, state.dataset.params);
+});
+document.getElementById("importCompCsvInput").addEventListener("change", async (e) => {
+  if (!state.comp || !state.dataset) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    await loadCompCsvFromFile(state.comp, state.dataset.params, file);
+    state.compRevision++;
+    refreshCompUI();
+    refreshCompMatrixUI();
+    refreshSingleStainReviewUI();
+    refreshApplyUI();
+    refreshWorstPairsUI();
+    updateAllPlots(state);
+    setStatusText("Loaded compensation matrix CSV");
+  } catch (err) {
+    console.error(err);
+    setStatusText(`Failed to load comp CSV: ${String(err?.message ?? err)}`);
+  } finally {
+    e.target.value = "";
+  }
+});
+if (toggleMatrixBtn && compMatrixWrapEl) {
+  toggleMatrixBtn.addEventListener("click", () => {
+    const nextHidden = !compMatrixWrapEl.hidden;
+    compMatrixWrapEl.hidden = nextHidden;
+    toggleMatrixBtn.textContent = nextHidden ? "Show matrix" : "Hide matrix";
+  });
+}
 
 // Apply-to-all (Worker)
 function ensureFullWorker() {
@@ -752,12 +889,23 @@ function ensureFullWorker() {
 }
 
 function setCompControlsEnabled(enabled) {
-  for (const id of ["compFrom", "compTo", "compSlider", "compResetBtn", "compResetAllBtn", "downloadCompBtn"]) {
+  for (const id of [
+    "compFrom",
+    "compTo",
+    "compSlider",
+    "compResetBtn",
+    "compResetAllBtn",
+    "downloadCompBtn",
+    "toggleMatrixBtn",
+    "exportCompCsvBtn",
+  ]) {
     const el = document.getElementById(id);
     if (el) el.disabled = !enabled;
   }
-  const upload = document.getElementById("uploadCompInput");
-  if (upload) upload.disabled = !enabled;
+  for (const id of ["uploadCompInput", "importCompCsvInput"]) {
+    const upload = document.getElementById(id);
+    if (upload) upload.disabled = !enabled;
+  }
 }
 
 function handleFullWorkerMessage(msg) {
@@ -880,11 +1028,14 @@ applyCancelBtn.addEventListener("click", () => cancelApplyToAll());
 // Initial UI
 refreshParamUI();
 refreshCompUI();
+refreshCompMatrixUI();
 refreshWorstPairsUI();
 refreshSingleStainListUI();
 refreshSingleStainReviewUI();
 refreshGateHierarchyUI();
 refreshApplyUI();
+refreshThemeUI();
+setCompControlsEnabled(false);
 setStatusText("Drop an FCS file (or load demo) to begin.");
 
 window.addEventListener("resize", () => refreshSingleStainReviewUI());

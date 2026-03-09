@@ -17,11 +17,11 @@
 - [x] ブラウザで単染色プロットが出ることを確認する。
 - [x] critic pass を実施し、使い勝手の改善点を反映する。
 - [x] ライトテーマ追加の要件を整理する。
-- [ ] ベージュ系ライトテーマとテーマ切替UIを追加する。
-- [ ] 単染色レビュー各パネルの下に個別compensationスライダーを追加する。
-- [ ] 単染色スライダー操作が既存の manual compensation と同期するようにする。
-- [ ] compensation matrix を表で表示するUIを追加する。
-- [ ] compensation matrix の CSV export / import を追加する。
-- [ ] matrix 操作ボタンを compensation(manual) カード上部へ配置する。
-- [ ] matrix CSV のテストを追加する。
-- [ ] ブラウザでテーマ切替、単染色スライダー、matrix CSV UI を確認する。
+- [x] ベージュ系ライトテーマとテーマ切替UIを追加する。
+- [x] 単染色レビュー各パネルの下に個別compensationスライダーを追加する。
+- [x] 単染色スライダー操作が既存の manual compensation と同期するようにする。
+- [x] compensation matrix を表で表示するUIを追加する。
+- [x] compensation matrix の CSV export / import を追加する。
+- [x] matrix 操作ボタンを compensation(manual) カード上部へ配置する。
+- [x] matrix CSV のテストを追加する。
+- [x] ブラウザでテーマ切替、単染色スライダー、matrix CSV UI を確認する。

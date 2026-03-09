@@ -1,11 +1,16 @@
 import { transformValue } from "./transforms.js";
+import { getThemeColors } from "./theme.js";
 
 const SCALE_PARAMS = {
   arcsinhCofactor: 150,
   logicleLinthresh: 100,
 };
 
-export function renderSingleStainReview({ container, sample, currentPair, onPickPair }) {
+const COMP_SLIDER_MIN = -10;
+const COMP_SLIDER_MAX = 10;
+const COMP_SLIDER_STEP = 0.001;
+
+export function renderSingleStainReview({ container, sample, currentPair, getCoeff, onPickPair, onChangeCoeff }) {
   container.innerHTML = "";
   if (!sample) return;
 
@@ -27,9 +32,10 @@ export function renderSingleStainReview({ container, sample, currentPair, onPick
     return;
   }
 
+  const yLabel = sample.referenceParams[yRef]?.label ?? "selected stain";
   const intro = document.createElement("div");
   intro.className = "single-stain-intro";
-  intro.textContent = `Y is fixed to ${sample.referenceParams[yRef]?.label ?? "selected stain"}. Click any panel to move the manual compensation slider to that pair.`;
+  intro.textContent = `Y is fixed to ${yLabel}. Each slider applies X - (${yLabel} x coef) and stays synced with manual compensation.`;
   container.appendChild(intro);
 
   const grid = document.createElement("div");
@@ -38,34 +44,74 @@ export function renderSingleStainReview({ container, sample, currentPair, onPick
 
   for (const xRef of xRefs) {
     const xSample = sample.referenceToSample.get(xRef);
-    const card = document.createElement("button");
-    card.type = "button";
+    const xLabel = sample.referenceParams[xRef]?.label ?? `#${xRef + 1}`;
+    const coeff = Number(getCoeff?.(yRef, xRef) ?? 0);
+
+    const card = document.createElement("div");
     card.className = "single-stain-plot";
     card.classList.toggle("selected", currentPair?.from === yRef && currentPair?.to === xRef);
 
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "single-stain-focus";
+    previewButton.addEventListener("click", () => onPickPair?.(yRef, xRef));
+
     const title = document.createElement("div");
     title.className = "single-stain-plot-title";
-    title.textContent = `${sample.referenceParams[xRef]?.label ?? `#${xRef + 1}`} vs ${sample.referenceParams[yRef]?.label ?? `#${yRef + 1}`}`;
+    title.textContent = `${xLabel} vs ${yLabel}`;
 
     const canvas = document.createElement("canvas");
     canvas.className = "single-stain-canvas";
 
     const footer = document.createElement("div");
     footer.className = "single-stain-plot-footer";
-    footer.textContent = `Set comp: ${sample.referenceParams[yRef]?.label ?? "Y"} -> ${sample.referenceParams[xRef]?.label ?? "X"}`;
+    footer.textContent = `Manual pair: ${yLabel} -> ${xLabel}`;
 
-    card.append(title, canvas, footer);
-    card.addEventListener("click", () => onPickPair?.(yRef, xRef));
+    previewButton.append(title, canvas, footer);
+
+    const controls = document.createElement("div");
+    controls.className = "single-stain-slider-wrap";
+
+    const controlsHeader = document.createElement("div");
+    controlsHeader.className = "single-stain-slider-header";
+
+    const controlsLabel = document.createElement("div");
+    controlsLabel.className = "single-stain-slider-label";
+    controlsLabel.textContent = `${xLabel} - (${yLabel} x coef)`;
+
+    const valueEl = document.createElement("div");
+    valueEl.className = "mono single-stain-slider-value";
+    valueEl.textContent = coeff.toFixed(3);
+
+    controlsHeader.append(controlsLabel, valueEl);
+
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.className = "single-stain-slider";
+    slider.min = String(COMP_SLIDER_MIN);
+    slider.max = String(COMP_SLIDER_MAX);
+    slider.step = String(COMP_SLIDER_STEP);
+    slider.value = String(clampToSlider(coeff));
+    slider.addEventListener("input", () => {
+      const next = Number(slider.value);
+      valueEl.textContent = next.toFixed(3);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, next);
+      onChangeCoeff?.(yRef, xRef, next);
+    });
+
+    controls.append(controlsHeader, slider);
+    card.append(previewButton, controls);
     grid.appendChild(card);
 
-    drawSingleStainPlot(canvas, sample, xSample, ySample);
+    drawSingleStainPlot(canvas, sample, xSample, ySample, coeff);
   }
 }
 
-function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
+function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff) {
   const n = sample.parsed.preview.n ?? 0;
   const xRaw = sample.parsed.preview.channels[xIndex] ?? new Float32Array(0);
   const yRaw = sample.parsed.preview.channels[yIndex] ?? new Float32Array(0);
+  const theme = getThemeColors();
 
   const rect = canvas.getBoundingClientRect();
   const width = Math.max(180, Math.round(rect.width || 220));
@@ -79,7 +125,7 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
   if (!ctx) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "rgba(6, 10, 16, 0.92)";
+  ctx.fillStyle = theme.plotCanvasBg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const plotArea = {
@@ -89,12 +135,12 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
     height: canvas.height - 32 * dpr,
   };
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+  ctx.strokeStyle = theme.plotFrame;
   ctx.lineWidth = Math.max(1, dpr);
   ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
   if (n <= 0) {
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillStyle = theme.plotText;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `${12 * dpr}px sans-serif`;
@@ -102,8 +148,8 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
     return;
   }
 
-  const xRange = computeRobustRange(xRaw, n);
-  const yRange = computeRobustRange(yRaw, n);
+  const xRange = computeRobustRange(xRaw, yRaw, n, coeff, true);
+  const yRange = computeRobustRange(yRaw, yRaw, n, 0, false);
   const xMinT = transformValue("logicle", xRange.min, SCALE_PARAMS);
   const xMaxT = transformValue("logicle", xRange.max, SCALE_PARAMS);
   const yMinT = transformValue("logicle", yRange.min, SCALE_PARAMS);
@@ -111,11 +157,12 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
   const denomX = xMaxT - xMinT || 1;
   const denomY = yMaxT - yMinT || 1;
 
-  ctx.fillStyle = "rgba(110, 168, 255, 0.65)";
+  ctx.fillStyle = theme.reviewPoint;
   const pointSize = Math.max(1, Math.round(dpr));
 
   for (let i = 0; i < n; i++) {
-    const xv = transformValue("logicle", xRaw[i], SCALE_PARAMS);
+    const xComp = xRaw[i] - coeff * yRaw[i];
+    const xv = transformValue("logicle", xComp, SCALE_PARAMS);
     const yv = transformValue("logicle", yRaw[i], SCALE_PARAMS);
     const nx = (xv - xMinT) / denomX;
     const ny = (yv - yMinT) / denomY;
@@ -127,10 +174,11 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex) {
   }
 }
 
-function computeRobustRange(values, n) {
+function computeRobustRange(primaryValues, secondaryValues, n, coeff, applyComp) {
   const list = [];
   for (let i = 0; i < n; i++) {
-    const v = values[i];
+    const base = primaryValues[i];
+    const v = applyComp ? base - coeff * secondaryValues[i] : base;
     if (Number.isFinite(v)) list.push(v);
   }
 
@@ -147,6 +195,10 @@ function computeRobustRange(values, n) {
 
   const pad = (high - low) * 0.08;
   return { min: low - pad, max: high + pad };
+}
+
+function clampToSlider(value) {
+  return Math.max(COMP_SLIDER_MIN, Math.min(COMP_SLIDER_MAX, Number.isFinite(value) ? value : 0));
 }
 
 function createEmptyState(text) {

@@ -1,6 +1,7 @@
 import { updateAllPlots } from "../state.js";
 import { transformValue } from "./transforms.js";
 import { gateFromPixelRect, gateToPixelRect, addGate, getGateById, getGateAncestors } from "./gate.js";
+import { getThemeColors } from "./theme.js";
 
 export function createPlotCard(state, plot, onActivate) {
   const el = document.createElement("div");
@@ -211,6 +212,7 @@ export function createPlotCard(state, plot, onActivate) {
 
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
+    const theme = getThemeColors();
 
     const plotArea = {
       left: 46 * dpi,
@@ -237,9 +239,11 @@ export function createPlotCard(state, plot, onActivate) {
     const yMaxT = transformValue(plot.scale, axisRanges.yMax, scaleParams);
 
     ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = theme.plotCanvasBg;
+    ctx.fillRect(0, 0, w, h);
 
     // Axes frame
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
+    ctx.strokeStyle = theme.plotFrame;
     ctx.lineWidth = Math.max(1, dpi);
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
@@ -268,7 +272,7 @@ export function createPlotCard(state, plot, onActivate) {
             for (let i = 0; i < cached.counts.length; i++) {
               const c = cached.counts[i];
               const t = denom > 0 ? Math.log(1 + c) / denom : 0;
-              const [r, g, b, a] = densityColor(t);
+              const [r, g, b, a] = densityColor(t, theme);
               const o = i * 4;
               out[o + 0] = r;
               out[o + 1] = g;
@@ -301,7 +305,7 @@ export function createPlotCard(state, plot, onActivate) {
             });
           }
           // Show loading state
-          ctx.fillStyle = "rgba(255,255,255,0.1)";
+          ctx.fillStyle = theme.plotLoading;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.font = `${14 * dpi}px sans-serif`;
@@ -343,7 +347,7 @@ export function createPlotCard(state, plot, onActivate) {
           for (let i = 0; i < counts.length; i++) {
             const c = counts[i];
             const t = denom > 0 ? Math.log(1 + c) / denom : 0;
-            const [r, g, b, a] = densityColor(t);
+            const [r, g, b, a] = densityColor(t, theme);
             const o = i * 4;
             out[o + 0] = r;
             out[o + 1] = g;
@@ -359,7 +363,7 @@ export function createPlotCard(state, plot, onActivate) {
       }
     } else {
       // Scatter (preview)
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fillStyle = theme.plotPoint;
       for (let k = 0; k < n; k++) {
         if (comp && !comp.gatePasses(k, raw, gateDefs)) continue;
 
@@ -383,7 +387,7 @@ export function createPlotCard(state, plot, onActivate) {
       const gateRect = gateToPixelRect({ gate: gate.definition, plot, plotArea, axisRanges, scaleParams });
       if (gateRect) {
         const isSelected = gate.id === selectedGate.id;
-        ctx.strokeStyle = isSelected ? "rgba(110,168,255,0.95)" : "rgba(255,255,255,0.3)";
+        ctx.strokeStyle = isSelected ? theme.plotGateSelected : theme.plotGate;
         ctx.lineWidth = Math.max(isSelected ? 2 : 1, (isSelected ? 2 : 1) * dpi);
         ctx.strokeRect(
           Math.min(gateRect.x0, gateRect.x1),
@@ -396,7 +400,7 @@ export function createPlotCard(state, plot, onActivate) {
     
     // Dragging rect overlay
     if (dragging) {
-      ctx.strokeStyle = "rgba(255,255,255,0.75)";
+      ctx.strokeStyle = theme.plotDrag;
       ctx.lineWidth = Math.max(2, 2 * dpi);
       ctx.setLineDash([6 * dpi, 4 * dpi]);
       ctx.strokeRect(
@@ -462,19 +466,23 @@ function clampInt(x, min, max) {
   return Math.max(min, Math.min(max, xi));
 }
 
-function densityColor(t) {
+function densityColor(t, theme) {
   const tt = Math.max(0, Math.min(1, Math.sqrt(t)));
   if (tt <= 0) return [0, 0, 0, 0];
   const a = Math.max(0, Math.min(255, Math.floor(255 * Math.min(1, tt * 1.25))));
 
-  // Dark -> accent -> white
-  const accent = [110, 168, 255];
+  const accent = theme.densityAccent;
   if (tt < 0.7) {
     const u = tt / 0.7;
     return [lerpInt(0, accent[0], u), lerpInt(0, accent[1], u), lerpInt(0, accent[2], u), a];
   }
   const u = (tt - 0.7) / 0.3;
-  return [lerpInt(accent[0], 255, u), lerpInt(accent[1], 255, u), lerpInt(accent[2], 255, u), a];
+  return [
+    lerpInt(accent[0], theme.densityPeak[0], u),
+    lerpInt(accent[1], theme.densityPeak[1], u),
+    lerpInt(accent[2], theme.densityPeak[2], u),
+    a,
+  ];
 }
 
 function lerpInt(a, b, t) {

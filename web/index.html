@@ -70,6 +70,18 @@
 
         <section class="panel">
           <h2>Compensation (manual)</h2>
+          <div class="panel-toolbar">
+            <button id="toggleMatrixBtn" class="btn btn-secondary">Show matrix</button>
+            <button id="exportCompCsvBtn" class="btn btn-secondary">Export CSV</button>
+            <label class="btn btn-secondary file-btn">
+              Import CSV
+              <input id="importCompCsvInput" type="file" accept=".csv,text/csv" />
+            </label>
+          </div>
+          <div id="compMatrixWrap" class="comp-matrix-wrap" hidden>
+            <div class="comp-matrix-caption mono">Rows = corrected channel (X / to), columns = stained channel (Y / from).</div>
+            <div id="compMatrixTable" class="comp-matrix-table"></div>
+          </div>
           <label class="btn btn-secondary file-btn">
             Load single-stain FCS
             <input id="singleStainInput" type="file" accept=".fcs" multiple />
@@ -90,7 +102,7 @@
           </div>
           <label class="field">
             <div class="label">Coefficient (subtract i → j)</div>
-            <input id="compSlider" type="range" min="-1" max="1" step="0.001" value="0" />
+            <input id="compSlider" type="range" min="-10" max="10" step="0.001" value="0" />
           </label>
           <div class="row">
             <div class="mono" id="compValue">0.000</div>
@@ -135,6 +147,7 @@
           <div class="row">
             <button id="addPlotBtn" class="btn">Add plot</button>
             <div class="spacer"></div>
+            <button id="themeToggleBtn" class="btn btn-secondary">Theme: Light</button>
             <a href="https://github.com/miiichiii/FCM-app#fcm-app-user-guide" target="_blank" class="btn btn-secondary" style="text-decoration:none; display:flex; align-items:center;">Help 📘</a>
           </div>
           <div class="row">

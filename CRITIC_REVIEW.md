@@ -59,3 +59,34 @@
 ## 今回スコープ外
 - 単染色からの自動コンペ係数推定
 - 命名辞書のユーザー保存
+
+---
+
+# CRITIC_REVIEW (Light Theme + Matrix Pass)
+
+## 重大バグ（P0）
+- なし
+
+## 仕様未達（P1）
+- なし
+
+## UX改善（最小）（P2）
+1. **single-stain slider は広い係数範囲だと微調整がやや難しい**
+   - 再現: 現在は `-10 .. 10` のレンジを1本の slider で扱うため、0.01 未満の追い込みは外部 matrix 編集か manual slider の方が安定する。
+   - 原因仮説: CSV import/export との整合性を優先し、slider 範囲を広めに固定した。
+   - 修正案: 次回は `fine/coarse` 切替か、slider 横に数値入力欄を追加する。
+
+2. **matrix は閲覧中心で、表内直接編集はまだできない**
+   - 再現: 現状は slider 操作結果の確認と CSV import/export はできるが、表セルをその場で編集する機能はない。
+   - 原因仮説: まずは single-stain review を主操作面に寄せ、matrix は確認用に止めた。
+   - 修正案: 次回は active cell だけ inline edit を許可し、manual pair と双方向同期させる。
+
+## 検証
+- `npm test` は 15/15 pass。
+- headless browser で `WT.fcs + CD45.1_APC.fcs + gr1-PE.fcs + dapi.fcs` を読み込み、以下を確認:
+  - テーマ切替が `body[data-theme]` に反映される
+  - main sample 読み込み後に plot 2枚が表示される
+  - single-stain slider が 8 本表示される
+  - slider 変更が manual compensation 値に同期する
+  - matrix CSV の export / import が動作する
+  - console error は 0
