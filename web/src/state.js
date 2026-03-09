@@ -26,6 +26,11 @@ export function createDefaultState() {
       pendingByPlotId: new Map(), // plotId -> { requestId, key }
       nextRequestId: 1,
     },
+    singleStain: {
+      samples: [],
+      activeSampleId: null,
+      compParamIndices: [],
+    },
     createPlot: createPlotState,
   };
 }
@@ -36,6 +41,7 @@ export function setDataset(state, dataset) {
   state.selectedGateId = "root";
   state.nextGateId = 1;
   state.gatingArmed = false;
+  state.singleStain.compParamIndices = [];
 }
 
 export function setStatusText(text) {

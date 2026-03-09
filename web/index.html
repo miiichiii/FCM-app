@@ -70,6 +70,14 @@
 
         <section class="panel">
           <h2>Compensation (manual)</h2>
+          <label class="btn btn-secondary file-btn">
+            Load single-stain FCS
+            <input id="singleStainInput" type="file" accept=".fcs" multiple />
+          </label>
+          <div class="hint">
+            File name is used to infer the stained channel. The review plots fix Y to the stained channel and fan X out across compensation channels.
+          </div>
+          <div id="singleStainList" class="single-stain-list"></div>
           <div class="grid2">
             <label class="field">
               <div class="label">From (i)</div>
@@ -133,6 +141,13 @@
             <div class="mono" id="statusText">Drop an FCS file to begin.</div>
           </div>
         </header>
+        <section id="singleStainSection" class="single-stain-section" hidden>
+          <div class="single-stain-header">
+            <div class="single-stain-title">Single-Stain Review</div>
+            <div class="mono" id="singleStainSummary">Load single-stain FCS files to review compensation pairs.</div>
+          </div>
+          <div id="singleStainGrid" class="single-stain-review"></div>
+        </section>
         <div id="plots" class="plots"></div>
       </main>
     </div>

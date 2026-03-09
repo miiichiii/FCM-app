@@ -4,6 +4,8 @@ import { createDemoDataset } from "./modules/demo.js";
 import { createPlotCard } from "./modules/plotCard.js";
 import { createCompModel, downloadCompJson, loadCompJsonFromFile } from "./modules/comp.js";
 import { armGating, addGate, clearAllGates, getGateById } from "./modules/gate.js";
+import { createSingleStainRecord, getCompRelevantParamIndices } from "./modules/singleStain.js";
+import { renderSingleStainReview } from "./modules/singleStainReview.js";
 
 globalThis.__FCM_APP_BOOTED = true;
 
@@ -18,6 +20,11 @@ const applyProgressEl = document.getElementById("applyProgress");
 const applyProgressBarEl = document.getElementById("applyProgressBar");
 const applyProgressTextEl = document.getElementById("applyProgressText");
 const applyStatusEl = document.getElementById("applyStatus");
+const singleStainInput = document.getElementById("singleStainInput");
+const singleStainListEl = document.getElementById("singleStainList");
+const singleStainSectionEl = document.getElementById("singleStainSection");
+const singleStainGridEl = document.getElementById("singleStainGrid");
+const singleStainSummaryEl = document.getElementById("singleStainSummary");
 
 function defaultPlotMode() {
   const n = state.dataset?.nEvents ?? 0;
@@ -138,6 +145,185 @@ function refreshWorstPairsUI() {
     item.append(left, right);
     listEl.appendChild(item);
   }
+}
+
+function getReferenceParams() {
+  if (state.dataset?.params?.length) return state.dataset.params;
+  return state.singleStain.samples[0]?.referenceParams ?? [];
+}
+
+function pickActiveSingleStainId() {
+  const resolved = state.singleStain.samples.find((sample) => sample.stainedReferenceIndex != null);
+  return resolved?.id ?? state.singleStain.samples[0]?.id ?? null;
+}
+
+function rebindSingleStainSamples(referenceParams) {
+  state.singleStain.compParamIndices = referenceParams?.length ? getCompRelevantParamIndices(referenceParams) : [];
+  if (state.singleStain.samples.length === 0 || !referenceParams?.length) return;
+
+  state.singleStain.samples = state.singleStain.samples.map((sample) => {
+    const rebound = createSingleStainRecord(sample.fileName, sample.parsed, referenceParams);
+    rebound.id = sample.id;
+    if (sample.inferenceReason === "manual" && sample.stainedReferenceIndex != null) {
+      rebound.stainedReferenceIndex = sample.stainedReferenceIndex;
+      rebound.inferenceConfidence = "manual";
+      rebound.inferenceReason = "manual";
+    }
+    return rebound;
+  });
+
+  if (!state.singleStain.samples.some((sample) => sample.id === state.singleStain.activeSampleId)) {
+    state.singleStain.activeSampleId = pickActiveSingleStainId();
+  }
+}
+
+function getActiveSingleStainSample() {
+  return state.singleStain.samples.find((sample) => sample.id === state.singleStain.activeSampleId) ?? null;
+}
+
+function setSingleStainChannel(sampleId, stainedReferenceIndex) {
+  state.singleStain.samples = state.singleStain.samples.map((sample) => {
+    if (sample.id !== sampleId) return sample;
+    return {
+      ...sample,
+      stainedReferenceIndex: Number.isFinite(stainedReferenceIndex) ? stainedReferenceIndex : null,
+      inferenceConfidence: "manual",
+      inferenceReason: "manual",
+    };
+  });
+  state.singleStain.activeSampleId = sampleId;
+  syncCompPairToSingleStainSample(getActiveSingleStainSample());
+  refreshSingleStainListUI();
+  refreshSingleStainReviewUI();
+}
+
+function selectSingleStainSample(sampleId) {
+  state.singleStain.activeSampleId = sampleId;
+  syncCompPairToSingleStainSample(getActiveSingleStainSample());
+  refreshSingleStainListUI();
+  refreshSingleStainReviewUI();
+}
+
+function setCompPairFromSingleStain(fromIndex, toIndex) {
+  if (!state.comp || !state.dataset) {
+    setStatusText("Load a main sample first to link single-stain plots to compensation.");
+    return;
+  }
+  state.comp.selectedFrom = fromIndex;
+  state.comp.selectedTo = toIndex;
+  refreshCompUI();
+  refreshSingleStainReviewUI();
+  setStatusText(`Comp pair set: ${state.dataset.params[fromIndex]?.label ?? fromIndex} -> ${state.dataset.params[toIndex]?.label ?? toIndex}`);
+}
+
+function syncCompPairToSingleStainSample(sample) {
+  if (!sample || !state.comp || !state.dataset || sample.stainedReferenceIndex == null) return;
+  const nextTo = sample.compParamIndices.find(
+    (refIndex) => refIndex !== sample.stainedReferenceIndex && sample.referenceToSample.has(refIndex),
+  );
+  if (!Number.isFinite(nextTo)) return;
+  state.comp.selectedFrom = sample.stainedReferenceIndex;
+  state.comp.selectedTo = nextTo;
+  refreshCompUI();
+}
+
+function refreshSingleStainListUI() {
+  if (!singleStainListEl) return;
+  singleStainListEl.innerHTML = "";
+
+  if (state.singleStain.samples.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "hint";
+    empty.textContent = "Load single-stain FCS files to build per-channel compensation review plots.";
+    singleStainListEl.appendChild(empty);
+    return;
+  }
+
+  const referenceParams = getReferenceParams();
+  const channelIndices = state.singleStain.compParamIndices.length
+    ? state.singleStain.compParamIndices
+    : getCompRelevantParamIndices(referenceParams);
+
+  for (const sample of state.singleStain.samples) {
+    const item = document.createElement("div");
+    item.className = "single-stain-item";
+    item.classList.toggle("selected", sample.id === state.singleStain.activeSampleId);
+
+    const fileButton = document.createElement("button");
+    fileButton.type = "button";
+    fileButton.className = "single-stain-file";
+    fileButton.addEventListener("click", () => selectSingleStainSample(sample.id));
+
+    const fileName = document.createElement("div");
+    fileName.className = "single-stain-file-name";
+    fileName.textContent = sample.fileName;
+
+    const meta = document.createElement("div");
+    meta.className = "single-stain-meta";
+
+    const badge = document.createElement("span");
+    badge.className = `single-stain-badge ${sample.inferenceConfidence === "high" ? "high" : sample.inferenceConfidence === "low" ? "low" : ""}`.trim();
+    badge.textContent = sample.inferenceReason === "manual"
+      ? "Manual"
+      : sample.inferenceConfidence === "high"
+        ? "Auto"
+        : sample.inferenceReason === "unstained-file"
+          ? "Unstained"
+          : "Needs review";
+
+    const stainLabel = document.createElement("span");
+    stainLabel.textContent = sample.stainedReferenceIndex != null
+      ? `Y: ${sample.referenceParams[sample.stainedReferenceIndex]?.label ?? "Unknown"}`
+      : "Y: not set";
+
+    meta.append(badge, stainLabel);
+    fileButton.append(fileName, meta);
+
+    const select = document.createElement("select");
+    select.innerHTML = [`<option value="">Pick stained channel…</option>`, ...channelIndices.map((index) => {
+      const label = sample.referenceParams[index]?.label ?? `#${index + 1}`;
+      return `<option value="${index}">${label}</option>`;
+    })].join("");
+    select.value = sample.stainedReferenceIndex != null ? String(sample.stainedReferenceIndex) : "";
+    select.addEventListener("change", () => {
+      const value = select.value === "" ? null : Number(select.value);
+      setSingleStainChannel(sample.id, value);
+    });
+
+    item.append(fileButton, select);
+    singleStainListEl.appendChild(item);
+  }
+}
+
+function refreshSingleStainReviewUI() {
+  if (!singleStainSectionEl || !singleStainGridEl || !singleStainSummaryEl) return;
+
+  if (state.singleStain.samples.length === 0) {
+    singleStainSectionEl.hidden = true;
+    singleStainSummaryEl.textContent = "Load single-stain FCS files to review compensation pairs.";
+    singleStainGridEl.innerHTML = "";
+    return;
+  }
+
+  singleStainSectionEl.hidden = false;
+  const sample = getActiveSingleStainSample();
+  if (!sample) {
+    singleStainSummaryEl.textContent = "Pick a single-stain file.";
+    singleStainGridEl.innerHTML = "";
+    return;
+  }
+
+  const stainLabel = sample.stainedReferenceIndex != null
+    ? sample.referenceParams[sample.stainedReferenceIndex]?.label ?? "Unknown"
+    : "Not set";
+  singleStainSummaryEl.textContent = `${sample.fileName} | stained: ${stainLabel} | preview: ${(sample.parsed.preview.n ?? 0).toLocaleString()} events`;
+
+  renderSingleStainReview({
+    container: singleStainGridEl,
+    sample,
+    currentPair: state.comp ? { from: state.comp.selectedFrom, to: state.comp.selectedTo } : null,
+    onPickPair: setCompPairFromSingleStain,
+  });
 }
 
 
@@ -309,9 +495,13 @@ async function loadDatasetFromFile(file) {
   state.fullApply.total = 0;
   state.fullApply.appliedRevision = null;
   state.fullApply.error = null;
+  rebindSingleStainSamples(dataset.params);
+  syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
   refreshCompUI();
   refreshWorstPairsUI();
+  refreshSingleStainListUI();
+  refreshSingleStainReviewUI();
   refreshApplyUI();
   setCompControlsEnabled(true);
   ensureTwoPlots();
@@ -337,9 +527,13 @@ function loadDemo() {
   state.fullApply.total = 0;
   state.fullApply.appliedRevision = null;
   state.fullApply.error = null;
+  rebindSingleStainSamples(demo.params);
+  syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
   refreshCompUI();
   refreshWorstPairsUI();
+  refreshSingleStainListUI();
+  refreshSingleStainReviewUI();
   refreshApplyUI();
   setCompControlsEnabled(true);
   ensureTwoPlots();
@@ -352,6 +546,7 @@ const fileInput = document.getElementById("fileInput");
 const loadDemoBtn = document.getElementById("loadDemoBtn");
 if (fileInput) fileInput.disabled = false;
 if (loadDemoBtn) loadDemoBtn.disabled = false;
+if (singleStainInput) singleStainInput.disabled = false;
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
@@ -381,6 +576,56 @@ fileInput.addEventListener("change", async () => {
     fileInput.value = "";
   }
 });
+
+async function loadSingleStainFiles(fileList) {
+  const files = Array.from(fileList ?? []);
+  if (files.length === 0) return;
+
+  const referenceParams = getReferenceParams();
+  const incoming = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    setStatusText(`Parsing single-stain ${i + 1}/${files.length}: ${file.name}`);
+    const parsed = await parseFcsFile(await file.arrayBuffer());
+    incoming.push(createSingleStainRecord(file.name, parsed, referenceParams.length ? referenceParams : parsed.params));
+  }
+
+  const byName = new Map(state.singleStain.samples.map((sample) => [sample.fileName, sample]));
+  for (const sample of incoming) {
+    const prev = byName.get(sample.fileName);
+    if (prev && prev.inferenceReason === "manual" && prev.stainedReferenceIndex != null) {
+      sample.stainedReferenceIndex = prev.stainedReferenceIndex;
+      sample.inferenceConfidence = "manual";
+      sample.inferenceReason = "manual";
+      sample.id = prev.id;
+    }
+    byName.set(sample.fileName, sample);
+  }
+
+  state.singleStain.samples = [...byName.values()];
+  state.singleStain.compParamIndices = getCompRelevantParamIndices(getReferenceParams());
+  state.singleStain.activeSampleId = pickActiveSingleStainId();
+  syncCompPairToSingleStainSample(getActiveSingleStainSample());
+  refreshSingleStainListUI();
+  refreshSingleStainReviewUI();
+
+  const resolved = state.singleStain.samples.filter((sample) => sample.stainedReferenceIndex != null).length;
+  setStatusText(`Loaded ${incoming.length} single-stain file(s). ${resolved}/${state.singleStain.samples.length} channel assignments ready.`);
+}
+
+if (singleStainInput) {
+  singleStainInput.addEventListener("change", async () => {
+    try {
+      await loadSingleStainFiles(singleStainInput.files);
+    } catch (err) {
+      console.error(err);
+      setStatusText(`Failed to load single-stain files: ${String(err?.message ?? err)}`);
+    } finally {
+      singleStainInput.value = "";
+    }
+  });
+}
 
 // Demo
 if (loadDemoBtn) {
@@ -423,11 +668,13 @@ compFrom.addEventListener("change", () => {
   if (!state.comp) return;
   state.comp.selectedFrom = Number(compFrom.value);
   refreshCompUI();
+  refreshSingleStainReviewUI();
 });
 compTo.addEventListener("change", () => {
   if (!state.comp) return;
   state.comp.selectedTo = Number(compTo.value);
   refreshCompUI();
+  refreshSingleStainReviewUI();
 });
 compSlider.addEventListener("input", () => {
   if (!state.comp) return;
@@ -447,6 +694,7 @@ document.getElementById("compResetBtn").addEventListener("click", () => {
   state.comp.resetPair(state.comp.selectedFrom, state.comp.selectedTo);
   state.compRevision++;
   refreshCompUI();
+  refreshSingleStainReviewUI();
   refreshApplyUI();
   refreshWorstPairsUI();
   updateAllPlots(state);
@@ -456,6 +704,7 @@ document.getElementById("compResetAllBtn").addEventListener("click", () => {
   state.comp.resetAll();
   state.compRevision++;
   refreshCompUI();
+  refreshSingleStainReviewUI();
   refreshApplyUI();
   refreshWorstPairsUI();
   updateAllPlots(state);
@@ -472,6 +721,7 @@ document.getElementById("uploadCompInput").addEventListener("change", async (e) 
     await loadCompJsonFromFile(state.comp, file);
     state.compRevision++;
     refreshCompUI();
+    refreshSingleStainReviewUI();
     refreshApplyUI();
     refreshWorstPairsUI();
     updateAllPlots(state);
@@ -631,9 +881,13 @@ applyCancelBtn.addEventListener("click", () => cancelApplyToAll());
 refreshParamUI();
 refreshCompUI();
 refreshWorstPairsUI();
+refreshSingleStainListUI();
+refreshSingleStainReviewUI();
 refreshGateHierarchyUI();
 refreshApplyUI();
 setStatusText("Drop an FCS file (or load demo) to begin.");
+
+window.addEventListener("resize", () => refreshSingleStainReviewUI());
 
 for (const id of ["gateXMin", "gateXMax", "gateYMin", "gateYMax"]) {
   document.getElementById(id).addEventListener("change", () => {
