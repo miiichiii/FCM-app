@@ -90,3 +90,28 @@
   - slider 変更が manual compensation 値に同期する
   - matrix CSV の export / import が動作する
   - console error は 0
+
+---
+
+# CRITIC_REVIEW (Comp Persistence + Fine Control Pass)
+
+## 重大バグ（P0）
+- なし
+
+## 仕様未達（P1）
+- なし
+
+## UX改善（最小）（P2）
+1. **自動復元は「最後の1つの matrix」を返すだけ**
+   - 再現: 同じチャネル構成の実験を複数並行で触る場合、最後に触った matrix が優先される。
+   - 修正案: 次回は `preset name` を付けて複数保存できるようにする。
+
+2. **single-stain 側の微調整は number input 前提**
+   - 再現: slider 自体は前回より細かくなったが、0.001 単位の追い込みは number input の方が安定する。
+   - 修正案: 次回は `fine/coarse` 切替を追加し、slider 単体でも追い込みやすくする。
+
+## 検証
+- `npm test` は 17/17 pass。
+- headless browser で `WT.fcs -> Fasting WT.fcs` と main sample を切り替え、`0.167` の補償値が維持されることを確認。
+- same browser pass で single-stain number input と manual nudge button の動作を確認。
+- console error は 0。

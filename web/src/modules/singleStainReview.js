@@ -1,14 +1,11 @@
 import { transformValue } from "./transforms.js";
 import { getThemeColors } from "./theme.js";
+import { COMP_INPUT_STEP, COMP_NUDGE_STEP, clampCompSliderValue, getCompSliderConfig, parseCompInput } from "./compUi.js";
 
 const SCALE_PARAMS = {
   arcsinhCofactor: 150,
   logicleLinthresh: 100,
 };
-
-const COMP_SLIDER_MIN = -10;
-const COMP_SLIDER_MAX = 10;
-const COMP_SLIDER_STEP = 0.001;
 
 export function renderSingleStainReview({ container, sample, currentPair, getCoeff, onPickPair, onChangeCoeff }) {
   container.innerHTML = "";
@@ -88,18 +85,42 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     const slider = document.createElement("input");
     slider.type = "range";
     slider.className = "single-stain-slider";
-    slider.min = String(COMP_SLIDER_MIN);
-    slider.max = String(COMP_SLIDER_MAX);
-    slider.step = String(COMP_SLIDER_STEP);
-    slider.value = String(clampToSlider(coeff));
-    slider.addEventListener("input", () => {
-      const next = Number(slider.value);
+    applySliderConfig(slider, coeff);
+
+    const editRow = document.createElement("div");
+    editRow.className = "single-stain-edit-row";
+
+    const downBtn = createAdjustButton("-0.01", -COMP_NUDGE_STEP);
+    const upBtn = createAdjustButton("+0.01", COMP_NUDGE_STEP);
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = String(COMP_INPUT_STEP);
+    input.className = "single-stain-number";
+    input.value = coeff.toFixed(3);
+
+    const applyValue = (next) => {
       valueEl.textContent = next.toFixed(3);
+      input.value = next.toFixed(3);
+      applySliderConfig(slider, next);
+      slider.value = String(clampCompSliderValue(next, getCompSliderConfig(next)));
       drawSingleStainPlot(canvas, sample, xSample, ySample, next);
       onChangeCoeff?.(yRef, xRef, next);
+    };
+
+    slider.addEventListener("input", () => {
+      applyValue(Number(slider.value));
     });
 
-    controls.append(controlsHeader, slider);
+    input.addEventListener("change", () => {
+      applyValue(parseCompInput(input.value, coeff));
+    });
+
+    downBtn.addEventListener("click", () => applyValue(parseCompInput(input.value, coeff) - COMP_NUDGE_STEP));
+    upBtn.addEventListener("click", () => applyValue(parseCompInput(input.value, coeff) + COMP_NUDGE_STEP));
+
+    editRow.append(downBtn, input, upBtn);
+    controls.append(controlsHeader, slider, editRow);
     card.append(previewButton, controls);
     grid.appendChild(card);
 
@@ -197,8 +218,11 @@ function computeRobustRange(primaryValues, secondaryValues, n, coeff, applyComp)
   return { min: low - pad, max: high + pad };
 }
 
-function clampToSlider(value) {
-  return Math.max(COMP_SLIDER_MIN, Math.min(COMP_SLIDER_MAX, Number.isFinite(value) ? value : 0));
+function applySliderConfig(slider, value) {
+  const config = getCompSliderConfig(value);
+  slider.min = String(config.min);
+  slider.max = String(config.max);
+  slider.step = String(config.step);
 }
 
 function createEmptyState(text) {
@@ -206,4 +230,13 @@ function createEmptyState(text) {
   el.className = "single-stain-empty";
   el.textContent = text;
   return el;
+}
+
+function createAdjustButton(label, delta) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn btn-secondary single-stain-nudge";
+  button.textContent = label;
+  button.dataset.delta = String(delta);
+  return button;
 }

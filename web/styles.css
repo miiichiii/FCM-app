@@ -358,6 +358,14 @@ input[type="range"] {
   word-break: break-word;
 }
 
+.comp-adjust-row {
+  flex-wrap: wrap;
+}
+
+#compExactInput {
+  width: 110px;
+}
+
 .param-list {
   max-height: 220px;
   overflow: auto;
@@ -664,6 +672,21 @@ input[type="range"] {
 .single-stain-slider-value {
   min-width: 48px;
   text-align: right;
+}
+
+.single-stain-edit-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.single-stain-number {
+  width: 100%;
+}
+
+.single-stain-nudge {
+  min-width: 62px;
 }
 
 .plots {

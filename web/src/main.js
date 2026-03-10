@@ -13,6 +13,8 @@ import { armGating, addGate, clearAllGates, getGateById } from "./modules/gate.j
 import { createSingleStainRecord, getCompRelevantParamIndices } from "./modules/singleStain.js";
 import { renderSingleStainReview } from "./modules/singleStainReview.js";
 import { initTheme, toggleTheme, getCurrentTheme } from "./modules/theme.js";
+import { COMP_INPUT_STEP, COMP_NUDGE_STEP, clampCompSliderValue, getCompSliderConfig, parseCompInput } from "./modules/compUi.js";
+import { loadCompSnapshotFromStorage, saveCompSnapshotToStorage } from "./modules/compStore.js";
 
 globalThis.__FCM_APP_BOOTED = true;
 
@@ -105,6 +107,7 @@ function refreshCompUI() {
   const fromSel = document.getElementById("compFrom");
   const toSel = document.getElementById("compTo");
   const slider = document.getElementById("compSlider");
+  const exactInput = document.getElementById("compExactInput");
   const valueEl = document.getElementById("compValue");
   const dirtyHint = document.getElementById("compDirtyHint");
 
@@ -112,6 +115,10 @@ function refreshCompUI() {
     fromSel.innerHTML = "";
     toSel.innerHTML = "";
     slider.value = "0";
+    slider.min = "-0.25";
+    slider.max = "0.25";
+    slider.step = "0.0005";
+    exactInput.value = "0.000";
     valueEl.textContent = "0.000";
     dirtyHint.hidden = true;
     return;
@@ -129,7 +136,13 @@ function refreshCompUI() {
   toSel.value = String(state.comp.selectedTo);
 
   const v = state.comp.getCoeff(state.comp.selectedFrom, state.comp.selectedTo);
-  slider.value = String(v);
+  const sliderConfig = getCompSliderConfig(v);
+  slider.min = String(sliderConfig.min);
+  slider.max = String(sliderConfig.max);
+  slider.step = String(sliderConfig.step);
+  slider.value = String(clampCompSliderValue(v, sliderConfig));
+  exactInput.step = String(COMP_INPUT_STEP);
+  exactInput.value = v.toFixed(3);
   valueEl.textContent = v.toFixed(3);
   dirtyHint.hidden = !state.comp.dirty;
 }
@@ -287,11 +300,31 @@ function setCompPairFromSingleStain(fromIndex, toIndex) {
   setStatusText(`Comp pair set: ${state.dataset.params[fromIndex]?.label ?? fromIndex} -> ${state.dataset.params[toIndex]?.label ?? toIndex}`);
 }
 
+function persistCompSnapshot() {
+  if (!state.comp || !state.dataset?.params?.length) return;
+  try {
+    saveCompSnapshotToStorage(state.comp, state.dataset.params);
+  } catch (err) {
+    console.error("Failed to persist compensation snapshot", err);
+  }
+}
+
+function restoreCompSnapshot() {
+  if (!state.comp || !state.dataset?.params?.length) return { restored: 0, matched: false };
+  try {
+    return loadCompSnapshotFromStorage(state.comp, state.dataset.params);
+  } catch (err) {
+    console.error("Failed to restore compensation snapshot", err);
+    return { restored: 0, matched: false };
+  }
+}
+
 function applyCompCoeff(fromIndex, toIndex, value, { refreshReview = true } = {}) {
   if (!state.comp) return;
   state.comp.selectedFrom = fromIndex;
   state.comp.selectedTo = toIndex;
   state.comp.setCoeff(fromIndex, toIndex, value);
+  persistCompSnapshot();
   state.compRevision++;
   refreshCompUI();
   refreshCompMatrixUI();
@@ -306,6 +339,7 @@ function resetCompPair(fromIndex, toIndex, { refreshReview = true } = {}) {
   state.comp.selectedFrom = fromIndex;
   state.comp.selectedTo = toIndex;
   state.comp.resetPair(fromIndex, toIndex);
+  persistCompSnapshot();
   state.compRevision++;
   refreshCompUI();
   refreshCompMatrixUI();
@@ -590,6 +624,7 @@ async function loadDatasetFromFile(file) {
   };
   setDataset(state, dataset);
   state.comp = createCompModel(parsed.params.length, parsed.spill ?? null);
+  const restoredComp = restoreCompSnapshot();
   state.compRevision = 0;
   state.fullApply.status = "idle";
   state.fullApply.phase = "";
@@ -609,9 +644,11 @@ async function loadDatasetFromFile(file) {
   setCompControlsEnabled(true);
   ensureTwoPlots();
   if (dataset.nEvents > 0) {
-    setStatusText(`Loaded ${file.name} (${dataset.nEvents.toLocaleString()} events)`);
+    const restoredText = restoredComp.restored > 0 ? ` | restored ${restoredComp.restored} comp pair(s)` : "";
+    setStatusText(`Loaded ${file.name} (${dataset.nEvents.toLocaleString()} events)${restoredText}`);
   } else {
-    setStatusText(`Loaded ${file.name} (0 events: no plot points to draw)`);
+    const restoredText = restoredComp.restored > 0 ? ` | restored ${restoredComp.restored} comp pair(s)` : "";
+    setStatusText(`Loaded ${file.name} (0 events: no plot points to draw)${restoredText}`);
   }
 }
 
@@ -776,6 +813,7 @@ document.getElementById("clearAllGatesBtn").addEventListener("click", () => {
 const compFrom = document.getElementById("compFrom");
 const compTo = document.getElementById("compTo");
 const compSlider = document.getElementById("compSlider");
+const compExactInput = document.getElementById("compExactInput");
 const compValue = document.getElementById("compValue");
 compFrom.addEventListener("change", () => {
   if (!state.comp) return;
@@ -798,6 +836,24 @@ compSlider.addEventListener("input", () => {
   const v = Number(compSlider.value);
   applyCompCoeff(i, j, v);
 });
+compExactInput.addEventListener("change", () => {
+  if (!state.comp) return;
+  const i = state.comp.selectedFrom;
+  const j = state.comp.selectedTo;
+  applyCompCoeff(i, j, parseCompInput(compExactInput.value, state.comp.getCoeff(i, j)));
+});
+document.getElementById("compNudgeDownBtn").addEventListener("click", () => {
+  if (!state.comp) return;
+  const i = state.comp.selectedFrom;
+  const j = state.comp.selectedTo;
+  applyCompCoeff(i, j, state.comp.getCoeff(i, j) - COMP_NUDGE_STEP);
+});
+document.getElementById("compNudgeUpBtn").addEventListener("click", () => {
+  if (!state.comp) return;
+  const i = state.comp.selectedFrom;
+  const j = state.comp.selectedTo;
+  applyCompCoeff(i, j, state.comp.getCoeff(i, j) + COMP_NUDGE_STEP);
+});
 document.getElementById("compResetBtn").addEventListener("click", () => {
   if (!state.comp) return;
   resetCompPair(state.comp.selectedFrom, state.comp.selectedTo);
@@ -805,6 +861,7 @@ document.getElementById("compResetBtn").addEventListener("click", () => {
 document.getElementById("compResetAllBtn").addEventListener("click", () => {
   if (!state.comp) return;
   state.comp.resetAll();
+  persistCompSnapshot();
   state.compRevision++;
   refreshCompUI();
   refreshCompMatrixUI();
@@ -823,6 +880,7 @@ document.getElementById("uploadCompInput").addEventListener("change", async (e) 
   if (!file) return;
   try {
     await loadCompJsonFromFile(state.comp, file);
+    persistCompSnapshot();
     state.compRevision++;
     refreshCompUI();
     refreshCompMatrixUI();
@@ -848,6 +906,7 @@ document.getElementById("importCompCsvInput").addEventListener("change", async (
   if (!file) return;
   try {
     await loadCompCsvFromFile(state.comp, state.dataset.params, file);
+    persistCompSnapshot();
     state.compRevision++;
     refreshCompUI();
     refreshCompMatrixUI();
@@ -893,6 +952,9 @@ function setCompControlsEnabled(enabled) {
     "compFrom",
     "compTo",
     "compSlider",
+    "compExactInput",
+    "compNudgeDownBtn",
+    "compNudgeUpBtn",
     "compResetBtn",
     "compResetAllBtn",
     "downloadCompBtn",

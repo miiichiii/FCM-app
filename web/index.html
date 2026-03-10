@@ -102,12 +102,16 @@
           </div>
           <label class="field">
             <div class="label">Coefficient (subtract i → j)</div>
-            <input id="compSlider" type="range" min="-10" max="10" step="0.001" value="0" />
+            <input id="compSlider" type="range" min="-0.25" max="0.25" step="0.0005" value="0" />
           </label>
-          <div class="row">
+          <div class="row comp-adjust-row">
             <div class="mono" id="compValue">0.000</div>
+            <button id="compNudgeDownBtn" class="btn btn-secondary">-0.01</button>
+            <input id="compExactInput" type="number" step="0.001" value="0" />
+            <button id="compNudgeUpBtn" class="btn btn-secondary">+0.01</button>
             <button id="compResetBtn" class="btn btn-secondary">Reset pair</button>
           </div>
+          <div class="hint">Compensation is autosaved and restored when the next sample has the same channel set.</div>
           <div class="row">
             <button id="compResetAllBtn" class="btn btn-secondary">Reset all</button>
             <button id="downloadCompBtn" class="btn btn-secondary">Save JSON</button>

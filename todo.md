@@ -25,3 +25,7 @@
 - [x] matrix 操作ボタンを compensation(manual) カード上部へ配置する。
 - [x] matrix CSV のテストを追加する。
 - [x] ブラウザでテーマ切替、単染色スライダー、matrix CSV UI を確認する。
+- [x] compensation 微調整 UI を改善する（細かい値を合わせやすくする）。
+- [x] 補償値を main sample 切替後も自動復元できるようにする。
+- [x] 保存/復元ロジックの回帰テストを追加する。
+- [x] ブラウザで sample 切替後に補償値が保持されることを確認する。
