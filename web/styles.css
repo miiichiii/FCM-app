@@ -98,6 +98,47 @@ body[data-theme="dark"] {
   --density-peak-rgb: 255 255 255;
 }
 
+/* ── モード切替タブ ───────────────────────────────────── */
+.mode-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  background: var(--brand-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--button-secondary);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-tab:hover {
+  background: var(--button-hover);
+  color: var(--text);
+}
+
+.mode-tab.active {
+  background: var(--panel-strong);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+  font-weight: 700;
+}
+
+.mode-panel {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 * {
   box-sizing: border-box;
 }

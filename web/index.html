@@ -14,6 +14,18 @@
           <div class="brand-subtitle">CellQuest-like MVP (manual comp / multi-2D / gating)</div>
         </div>
 
+        <!-- モード切替タブ -->
+        <div class="mode-tabs" role="tablist">
+          <button class="mode-tab active" id="tabCompBtn" role="tab" aria-selected="true" aria-controls="compPanel">
+            Compensation
+          </button>
+          <button class="mode-tab" id="tabAnalysisBtn" role="tab" aria-selected="false" aria-controls="analysisPanel">
+            Analysis
+          </button>
+        </div>
+
+        <!-- コンペンセーションモード -->
+        <div id="compPanel" class="mode-panel">
         <section class="panel">
           <h2>Data</h2>
           <div id="dropZone" class="drop-zone" tabindex="0">
@@ -36,6 +48,23 @@
             <div id="paramList" class="param-list"></div>
           </details>
           <div class="status-box mono" id="statusTextSidebar">Drop an FCS file to begin.</div>
+        </section>
+
+        </div><!-- /#compPanel -->
+
+        <!-- 解析モード -->
+        <div id="analysisPanel" class="mode-panel" hidden>
+        <section class="panel">
+          <h2>Data</h2>
+          <div class="kv">
+            <div class="k">File</div>
+            <div class="v" id="fileNameAnalysis">—</div>
+            <div class="k">Events</div>
+            <div class="v" id="eventCountAnalysis">—</div>
+            <div class="k">Params</div>
+            <div class="v" id="paramCountAnalysis">—</div>
+          </div>
+          <div class="status-box mono" id="statusTextAnalysis">解析モードです。FCSファイルを読み込んでください。</div>
         </section>
 
         <section class="panel">
@@ -144,6 +173,7 @@
             <div id="worstPairsList" class="param-list"></div>
           </details>
         </section>
+        </div><!-- /#analysisPanel -->
       </aside>
 
       <main class="main">

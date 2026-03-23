@@ -415,6 +415,25 @@ export function createPlotCard(state, plot, onActivate) {
     const xLabel = params[plot.xParam]?.label ?? `#${plot.xParam + 1}`;
     const yLabel = params[plot.yParam]?.label ?? `#${plot.yParam + 1}`;
     overlayLeft.textContent = `${xLabel} vs ${yLabel}`;
+
+    // Canvas 上に軸ラベルを描画
+    const axisLabelFont = `${Math.round(11 * dpi)}px ${getComputedStyle(document.documentElement).getPropertyValue("--sans") || "sans-serif"}`;
+    ctx.save();
+    ctx.font = axisLabelFont;
+    ctx.fillStyle = theme.plotText ?? "rgba(66,53,39,0.72)";
+    ctx.textBaseline = "bottom";
+    ctx.textAlign = "center";
+    // X軸ラベル（プロット領域下部中央）
+    const xLabelY = h - Math.round(4 * dpi);
+    ctx.fillText(xLabel, plotArea.left + plotArea.width / 2, xLabelY);
+    // Y軸ラベル（プロット領域左側・90°回転）
+    ctx.save();
+    ctx.translate(Math.round(13 * dpi), plotArea.top + plotArea.height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textBaseline = "top";
+    ctx.fillText(yLabel, 0, 0);
+    ctx.restore();
+    ctx.restore();
     const modeLabel = plot.mode === "density" ? "density" : "scatter";
     const canUseFull = state.fullApply.status === "done" && state.fullApply.appliedRevision === state.compRevision;
     const scopeLabel = (plot.mode === "density" && canUseFull) ? "full" : (dataset.nEvents > totalN ? "preview" : "full");

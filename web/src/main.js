@@ -18,6 +18,15 @@ import { loadCompSnapshotFromStorage, saveCompSnapshotToStorage } from "./module
 
 globalThis.__FCM_APP_BOOTED = true;
 
+/** 関数 fn の呼び出しを wait ms だけ遅延する（スライダーの過剰描画防止）*/
+function debounce(fn, wait) {
+  let timer = null;
+  return function (...args) {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn.apply(this, args); }, wait);
+  };
+}
+
 const state = createDefaultState();
 const plotsEl = document.getElementById("plots");
 
@@ -829,12 +838,18 @@ compTo.addEventListener("change", () => {
   refreshCompMatrixUI();
   refreshSingleStainReviewUI();
 });
+// スライダー: 表示値は即時更新、重いプロット再描画は 50ms デバウンス
+const _applySliderDebounced = debounce((i, j, v) => applyCompCoeff(i, j, v), 50);
 compSlider.addEventListener("input", () => {
   if (!state.comp) return;
   const i = state.comp.selectedFrom;
   const j = state.comp.selectedTo;
   const v = Number(compSlider.value);
-  applyCompCoeff(i, j, v);
+  // 値表示を即時反映
+  compValue.textContent = v.toFixed(3);
+  compExactInput.value = v.toFixed(3);
+  // プロット再描画はデバウンス
+  _applySliderDebounced(i, j, v);
 });
 compExactInput.addEventListener("change", () => {
   if (!state.comp) return;
@@ -929,6 +944,37 @@ if (toggleMatrixBtn && compMatrixWrapEl) {
     toggleMatrixBtn.textContent = nextHidden ? "Show matrix" : "Hide matrix";
   });
 }
+
+// ── モード切替タブ ──────────────────────────────────────
+const tabCompBtn = document.getElementById("tabCompBtn");
+const tabAnalysisBtn = document.getElementById("tabAnalysisBtn");
+const compPanel = document.getElementById("compPanel");
+const analysisPanel = document.getElementById("analysisPanel");
+
+function switchMode(mode) {
+  const isComp = mode === "comp";
+  tabCompBtn.classList.toggle("active", isComp);
+  tabAnalysisBtn.classList.toggle("active", !isComp);
+  tabCompBtn.setAttribute("aria-selected", String(isComp));
+  tabAnalysisBtn.setAttribute("aria-selected", String(!isComp));
+  compPanel.hidden = !isComp;
+  analysisPanel.hidden = isComp;
+  // 解析パネルのデータ表示を同期
+  if (!isComp && state.dataset) {
+    const ds = state.dataset;
+    const fna = document.getElementById("fileNameAnalysis");
+    const eca = document.getElementById("eventCountAnalysis");
+    const pca = document.getElementById("paramCountAnalysis");
+    if (fna) fna.textContent = ds.name;
+    if (eca) eca.textContent = String(ds.nEvents);
+    if (pca) pca.textContent = String(ds.params.length);
+    const sa = document.getElementById("statusTextAnalysis");
+    if (sa) sa.textContent = `${ds.name} を読み込み済み。`;
+  }
+}
+
+if (tabCompBtn) tabCompBtn.addEventListener("click", () => switchMode("comp"));
+if (tabAnalysisBtn) tabAnalysisBtn.addEventListener("click", () => switchMode("analysis"));
 
 // Apply-to-all (Worker)
 function ensureFullWorker() {

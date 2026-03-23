@@ -43,8 +43,32 @@ export function parseFcsTextSegment(buffer, textStart, textEnd) {
   return keywords;
 }
 
+// サポートされている FCS バージョン
+const SUPPORTED_FCS_VERSIONS = new Set(["FCS3.0", "FCS3.1"]);
+// 最大ファイルサイズ: 1 GB
+const MAX_FILE_BYTES = 1 * 1024 * 1024 * 1024;
+
 export async function parseFcsFile(buffer) {
+  if (buffer.byteLength > MAX_FILE_BYTES) {
+    throw new Error(
+      `ファイルサイズが上限 (1 GB) を超えています (${(buffer.byteLength / 1024 / 1024 / 1024).toFixed(2)} GB)。`
+    );
+  }
+
   const header = parseFcsHeader(buffer);
+
+  if (!SUPPORTED_FCS_VERSIONS.has(header.version)) {
+    if (header.version.startsWith("FCS2")) {
+      throw new Error(
+        `FCS 2.0 形式はサポートされていません (検出バージョン: ${header.version})。` +
+        ` FlowJo 等で FCS 3.0 / 3.1 形式に変換してから読み込んでください。`
+      );
+    }
+    throw new Error(
+      `未対応の FCS バージョンです: ${header.version}。FCS 3.0 / 3.1 のファイルを使用してください。`
+    );
+  }
+
   const keywords = parseFcsTextSegment(buffer, header.textStart, header.textEnd);
 
   const textDataStart = parsePositiveInt(keywords.get("$BEGINDATA"));
