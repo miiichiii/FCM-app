@@ -579,6 +579,7 @@ function mountPlot(plot) {
     state.activePlotId = plot.id;
     updateAllPlots(state);
     refreshGateHierarchyUI();
+    refreshPlotCompSliders();
   });
   plotsEl.appendChild(card.el);
   state.plotCards.set(plot.id, card);
@@ -650,6 +651,7 @@ async function loadDatasetFromFile(file) {
   refreshSingleStainListUI();
   refreshSingleStainReviewUI();
   refreshApplyUI();
+  refreshPlotCompSliders();
   setCompControlsEnabled(true);
   ensureTwoPlots();
   if (dataset.nEvents > 0) {
@@ -975,6 +977,114 @@ function switchMode(mode) {
 
 if (tabCompBtn) tabCompBtn.addEventListener("click", () => switchMode("comp"));
 if (tabAnalysisBtn) tabAnalysisBtn.addEventListener("click", () => switchMode("analysis"));
+
+// ── Plot Compensation スライダー（アクティブプロット連動）────────────
+const plotCompSliders = document.getElementById("plotCompSliders");
+const plotCompHint    = document.getElementById("plotCompHint");
+const plotCompXSlider = document.getElementById("plotCompXSlider");
+const plotCompYSlider = document.getElementById("plotCompYSlider");
+const plotCompXValue  = document.getElementById("plotCompXValue");
+const plotCompYValue  = document.getElementById("plotCompYValue");
+const plotCompXLabel  = document.getElementById("plotCompXLabel");
+const plotCompYLabel  = document.getElementById("plotCompYLabel");
+const plotCompXReset  = document.getElementById("plotCompXReset");
+const plotCompYReset  = document.getElementById("plotCompYReset");
+
+/** アクティブプロットのX・Y軸に合わせてスライダーを同期する */
+function refreshPlotCompSliders() {
+  if (!state.comp || !state.dataset) {
+    if (plotCompSliders) plotCompSliders.hidden = true;
+    if (plotCompHint) plotCompHint.hidden = false;
+    return;
+  }
+  const activePlot = state.plots.find(p => p.id === state.activePlotId);
+  if (!activePlot) {
+    if (plotCompSliders) plotCompSliders.hidden = true;
+    if (plotCompHint) plotCompHint.hidden = false;
+    return;
+  }
+
+  const xParam = activePlot.xParam;
+  const yParam = activePlot.yParam;
+  const params = state.dataset.params;
+  const xName = params[xParam]?.label ?? `#${xParam + 1}`;
+  const yName = params[yParam]?.label ?? `#${yParam + 1}`;
+
+  // X→Y (xParam から yParam へのスピルオーバー)
+  const xToY = state.comp.getCoeff(xParam, yParam);
+  // Y→X (yParam から xParam へのスピルオーバー)
+  const yToX = state.comp.getCoeff(yParam, xParam);
+
+  if (plotCompXLabel) plotCompXLabel.textContent = `${xName} → ${yName} (X spillover)`;
+  if (plotCompYLabel) plotCompYLabel.textContent = `${yName} → ${xName} (Y spillover)`;
+
+  const cfgX = getCompSliderConfig(xToY);
+  if (plotCompXSlider) {
+    plotCompXSlider.min   = String(cfgX.min);
+    plotCompXSlider.max   = String(cfgX.max);
+    plotCompXSlider.step  = String(cfgX.step);
+    plotCompXSlider.value = String(Math.max(cfgX.min, Math.min(cfgX.max, xToY)));
+  }
+  if (plotCompXValue) plotCompXValue.textContent = xToY.toFixed(3);
+
+  const cfgY = getCompSliderConfig(yToX);
+  if (plotCompYSlider) {
+    plotCompYSlider.min   = String(cfgY.min);
+    plotCompYSlider.max   = String(cfgY.max);
+    plotCompYSlider.step  = String(cfgY.step);
+    plotCompYSlider.value = String(Math.max(cfgY.min, Math.min(cfgY.max, yToX)));
+  }
+  if (plotCompYValue) plotCompYValue.textContent = yToX.toFixed(3);
+
+  if (plotCompSliders) plotCompSliders.hidden = false;
+  if (plotCompHint) plotCompHint.hidden = true;
+}
+
+// X軸スライダーイベント
+const _applyPlotXDebounced = debounce((xParam, yParam, v) => {
+  applyCompCoeff(xParam, yParam, v);
+  refreshPlotCompSliders();
+}, 50);
+if (plotCompXSlider) {
+  plotCompXSlider.addEventListener("input", () => {
+    const activePlot = state.plots.find(p => p.id === state.activePlotId);
+    if (!activePlot || !state.comp) return;
+    const v = Number(plotCompXSlider.value);
+    if (plotCompXValue) plotCompXValue.textContent = v.toFixed(3);
+    _applyPlotXDebounced(activePlot.xParam, activePlot.yParam, v);
+  });
+}
+if (plotCompXReset) {
+  plotCompXReset.addEventListener("click", () => {
+    const activePlot = state.plots.find(p => p.id === state.activePlotId);
+    if (!activePlot || !state.comp) return;
+    applyCompCoeff(activePlot.xParam, activePlot.yParam, 0);
+    refreshPlotCompSliders();
+  });
+}
+
+// Y軸スライダーイベント
+const _applyPlotYDebounced = debounce((yParam, xParam, v) => {
+  applyCompCoeff(yParam, xParam, v);
+  refreshPlotCompSliders();
+}, 50);
+if (plotCompYSlider) {
+  plotCompYSlider.addEventListener("input", () => {
+    const activePlot = state.plots.find(p => p.id === state.activePlotId);
+    if (!activePlot || !state.comp) return;
+    const v = Number(plotCompYSlider.value);
+    if (plotCompYValue) plotCompYValue.textContent = v.toFixed(3);
+    _applyPlotYDebounced(activePlot.yParam, activePlot.xParam, v);
+  });
+}
+if (plotCompYReset) {
+  plotCompYReset.addEventListener("click", () => {
+    const activePlot = state.plots.find(p => p.id === state.activePlotId);
+    if (!activePlot || !state.comp) return;
+    applyCompCoeff(activePlot.yParam, activePlot.xParam, 0);
+    refreshPlotCompSliders();
+  });
+}
 
 // Apply-to-all (Worker)
 function ensureFullWorker() {
