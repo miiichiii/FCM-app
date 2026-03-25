@@ -27,7 +27,8 @@
         <!-- コンペンセーションモード -->
         <div id="compPanel" class="mode-panel">
         <section class="panel">
-          <h2>Data</h2>
+          <h2>① FCS Sample</h2>
+          <p class="panel-subtitle">解析するFCSファイルを読み込んでください。</p>
           <div id="dropZone" class="drop-zone" tabindex="0">
             <div class="drop-title">Drop FCS here</div>
             <div class="drop-subtitle">or choose a file</div>
@@ -52,7 +53,8 @@
 
         <!-- アクティブプロット連動スライダー -->
         <section class="panel">
-          <h2>Plot Compensation</h2>
+          <h2>② Quick Adjust</h2>
+          <p class="panel-subtitle">アクティブなプロットの X・Y 軸チャンネルのスピルオーバー係数をすばやく調整します。</p>
           <div class="hint" id="plotCompHint">FCSファイルを読み込むとプロットの軸に連動したスライダーが表示されます。</div>
           <div id="plotCompSliders" hidden>
             <label class="field">
@@ -75,7 +77,8 @@
         </section>
 
         <section class="panel">
-          <h2>Compensation (manual)</h2>
+          <h2>③ Compensation Matrix</h2>
+          <p class="panel-subtitle">スピルオーバー係数の行列を手動・シングルステイン FCS・CSV から編集し、全イベントに適用します。</p>
           <div class="panel-toolbar">
             <button id="toggleMatrixBtn" class="btn btn-secondary">Show matrix</button>
             <button id="exportCompCsvBtn" class="btn btn-secondary">Export CSV</button>
@@ -156,7 +159,7 @@
         <!-- 解析モード -->
         <div id="analysisPanel" class="mode-panel" hidden>
         <section class="panel">
-          <h2>Data</h2>
+          <h2>Current Sample</h2>
           <div class="kv">
             <div class="k">File</div>
             <div class="v" id="fileNameAnalysis">—</div>
