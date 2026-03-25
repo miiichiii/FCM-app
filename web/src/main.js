@@ -18,6 +18,9 @@ import { loadCompSnapshotFromStorage, saveCompSnapshotToStorage } from "./module
 
 globalThis.__FCM_APP_BOOTED = true;
 
+// パラメータリストフィルタ (蛍光チャンネルのみ表示)
+let paramFilterActive = false;
+
 /** 関数 fn の呼び出しを wait ms だけ遅延する（スライダーの過剰描画防止）*/
 function debounce(fn, wait) {
   let timer = null;
@@ -98,7 +101,13 @@ function refreshParamUI() {
   paramCountEl.textContent = String(state.dataset.params.length);
   paramListEl.innerHTML = "";
 
+  const compOnly = paramFilterActive && state.dataset.params.length > 0;
+  const compIndices = compOnly
+    ? new Set(getCompRelevantParamIndices(state.dataset.params))
+    : null;
+
   for (const [idx, p] of state.dataset.params.entries()) {
+    if (compIndices && !compIndices.has(idx)) continue;
     const item = document.createElement("div");
     item.className = "param-item";
     const left = document.createElement("div");
@@ -579,7 +588,9 @@ function mountPlot(plot) {
     state.activePlotId = plot.id;
     updateAllPlots(state);
     refreshGateHierarchyUI();
-    refreshPlotCompSliders();
+  }, {
+    onApplyComp: (fromIndex, toIndex, value) =>
+      applyCompCoeff(fromIndex, toIndex, value, { refreshReview: false }),
   });
   plotsEl.appendChild(card.el);
   state.plotCards.set(plot.id, card);
@@ -807,6 +818,16 @@ document.getElementById("addPlotBtn").addEventListener("click", () => {
   mountPlot(plot);
   updateAllPlots(state);
 });
+
+// Param filter toggle
+const paramFilterBtn = document.getElementById("paramFilterBtn");
+if (paramFilterBtn) {
+  paramFilterBtn.addEventListener("click", () => {
+    paramFilterActive = !paramFilterActive;
+    paramFilterBtn.classList.toggle("active", paramFilterActive);
+    refreshSampleInfoUI();
+  });
+}
 
 // Gate
 document.getElementById("newGateBtn").addEventListener("click", () => {

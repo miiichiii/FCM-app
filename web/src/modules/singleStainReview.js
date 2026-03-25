@@ -1,6 +1,6 @@
 import { transformValue } from "./transforms.js";
 import { getThemeColors } from "./theme.js";
-import { COMP_INPUT_STEP, COMP_NUDGE_STEP, clampCompSliderValue, getCompSliderConfig, parseCompInput } from "./compUi.js";
+// compUi imports removed — sliders are now handled in the Compensation Matrix section
 
 const SCALE_PARAMS = {
   arcsinhCofactor: 150,
@@ -48,80 +48,33 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     card.className = "single-stain-plot";
     card.classList.toggle("selected", currentPair?.from === yRef && currentPair?.to === xRef);
 
-    const previewButton = document.createElement("button");
-    previewButton.type = "button";
-    previewButton.className = "single-stain-focus";
-    previewButton.addEventListener("click", () => onPickPair?.(yRef, xRef));
+    // ── キャンバス: Y ラベル(左) + canvas + X ラベル(下) ─────────
+    const plotBody = document.createElement("div");
+    plotBody.className = "ss-plot-body";
 
-    const title = document.createElement("div");
-    title.className = "single-stain-plot-title";
-    title.textContent = `${xLabel} vs ${yLabel}`;
+    const yLabelEl = document.createElement("div");
+    yLabelEl.className = "ss-y-label";
+    yLabelEl.textContent = yLabel;
 
     const canvas = document.createElement("canvas");
     canvas.className = "single-stain-canvas";
 
+    plotBody.append(yLabelEl, canvas);
+
+    const xLabelEl = document.createElement("div");
+    xLabelEl.className = "ss-x-label";
+    xLabelEl.textContent = xLabel;
+
+    // カードクリックでペアを選択
+    card.addEventListener("click", () => onPickPair?.(yRef, xRef));
+    card.style.cursor = "pointer";
+
+    // 係数表示フッター (クリックでコンペンセーションタブのペアを切り替え)
     const footer = document.createElement("div");
     footer.className = "single-stain-plot-footer";
-    footer.textContent = `Manual pair: ${yLabel} -> ${xLabel}`;
+    footer.textContent = `coeff: ${coeff.toFixed(3)}`;
 
-    previewButton.append(title, canvas, footer);
-
-    const controls = document.createElement("div");
-    controls.className = "single-stain-slider-wrap";
-
-    const controlsHeader = document.createElement("div");
-    controlsHeader.className = "single-stain-slider-header";
-
-    const controlsLabel = document.createElement("div");
-    controlsLabel.className = "single-stain-slider-label";
-    controlsLabel.textContent = `${xLabel} - (${yLabel} x coef)`;
-
-    const valueEl = document.createElement("div");
-    valueEl.className = "mono single-stain-slider-value";
-    valueEl.textContent = coeff.toFixed(3);
-
-    controlsHeader.append(controlsLabel, valueEl);
-
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.className = "single-stain-slider";
-    applySliderConfig(slider, coeff);
-
-    const editRow = document.createElement("div");
-    editRow.className = "single-stain-edit-row";
-
-    const downBtn = createAdjustButton("-0.01", -COMP_NUDGE_STEP);
-    const upBtn = createAdjustButton("+0.01", COMP_NUDGE_STEP);
-
-    const input = document.createElement("input");
-    input.type = "number";
-    input.step = String(COMP_INPUT_STEP);
-    input.className = "single-stain-number";
-    input.value = coeff.toFixed(3);
-
-    const applyValue = (next) => {
-      valueEl.textContent = next.toFixed(3);
-      input.value = next.toFixed(3);
-      applySliderConfig(slider, next);
-      slider.value = String(clampCompSliderValue(next, getCompSliderConfig(next)));
-      drawSingleStainPlot(canvas, sample, xSample, ySample, next);
-      onChangeCoeff?.(yRef, xRef, next);
-    };
-
-    slider.addEventListener("input", () => {
-      applyValue(Number(slider.value));
-    });
-
-    input.addEventListener("change", () => {
-      applyValue(parseCompInput(input.value, coeff));
-    });
-
-    downBtn.addEventListener("click", () => applyValue(parseCompInput(input.value, coeff) - COMP_NUDGE_STEP));
-    upBtn.addEventListener("click", () => applyValue(parseCompInput(input.value, coeff) + COMP_NUDGE_STEP));
-
-    editRow.append(downBtn, input, upBtn);
-    controls.append(controlsHeader, slider, editRow);
-    card.append(previewButton, controls);
+    card.append(plotBody, xLabelEl, footer);
     grid.appendChild(card);
 
     drawSingleStainPlot(canvas, sample, xSample, ySample, coeff);
@@ -218,13 +171,6 @@ function computeRobustRange(primaryValues, secondaryValues, n, coeff, applyComp)
   return { min: low - pad, max: high + pad };
 }
 
-function applySliderConfig(slider, value) {
-  const config = getCompSliderConfig(value);
-  slider.min = String(config.min);
-  slider.max = String(config.max);
-  slider.step = String(config.step);
-}
-
 function createEmptyState(text) {
   const el = document.createElement("div");
   el.className = "single-stain-empty";
@@ -232,11 +178,4 @@ function createEmptyState(text) {
   return el;
 }
 
-function createAdjustButton(label, delta) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "btn btn-secondary single-stain-nudge";
-  button.textContent = label;
-  button.dataset.delta = String(delta);
-  return button;
-}
+

@@ -754,7 +754,7 @@ input[type="range"] {
   box-shadow: var(--shadow);
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto 1fr auto;
   min-height: 360px;
   max-height: 560px;
 }
@@ -774,7 +774,9 @@ input[type="range"] {
   align-items: end;
 }
 
-/* ── plotCard new layout ─────────────────────────────────── */
+/* ── plotCard layout ─────────────────────────────────────────── */
+
+/* plot-body: Y軸 + canvas の横並び */
 .plot-body {
   display: flex;
   flex-direction: row;
@@ -782,11 +784,57 @@ input[type="range"] {
   min-height: 0;
 }
 
+/* ── Y軸: スライダー列(左) + selectラベル列(右) ──────────────── */
 .plot-axis-y {
-  width: 28px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  border-right: 1px solid var(--divider);
+}
+
+.y-slider-col {
+  width: 30px;
+  display: flex;
+  flex-direction: column;
+}
+
+.y-slider-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  gap: 2px;
+}
+
+/* 縦型スライダー: writing-mode で実現 */
+.y-axis-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;            /* 上 = max, 下 = min */
+  -webkit-appearance: slider-vertical;
+  width: 18px;
+  flex: 1;
+  min-height: 30px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* comp モードのレンジ端ラベル ("+1.00" / 現在値) */
+.y-comp-edge {
+  font-size: 9px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.2;
+  flex-shrink: 0;
+  word-break: break-all;
+}
+
+/* Y チャンネル select: 縦回転 */
+.axis-select-y-wrap {
+  width: 26px;
   position: relative;
   overflow: visible;
+  flex-shrink: 0;
 }
 
 .axis-select-y {
@@ -794,14 +842,87 @@ input[type="range"] {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) rotate(-90deg);
-  width: 150px;
-  font-size: 11px;
-  padding: 3px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  width: 130px;
+  font-size: 10px;
+  padding: 3px 4px;
+  z-index: 2;
 }
 
+/* ── X軸: select行 + コントロール行 (flex-column) ─────────────── */
+.plot-axis-x {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  border-top: 1px solid var(--divider);
+  background: var(--panel-muted);
+}
+
+.x-sel-row {
+  display: flex;
+  justify-content: center;
+}
+
+.axis-select-x {
+  min-width: 100px;
+  max-width: 240px;
+  font-size: 11px;
+}
+
+/* range / comp コントロール行 */
+.x-ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.x-range-slider,
+.x-comp-slider {
+  flex: 1;
+  min-width: 30px;
+  accent-color: var(--accent);
+}
+
+.x-comp-label {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.x-comp-val {
+  font-size: 11px;
+  flex-shrink: 0;
+  min-width: 44px;
+  text-align: right;
+}
+
+/* 共通の数値入力 (range num) */
+.axis-range-num {
+  width: 44px !important;
+  padding: 2px 3px !important;
+  font-size: 10px !important;
+  text-align: center;
+  border-radius: 6px !important;
+  flex-shrink: 0;
+}
+
+/* Auto / Reset ボタン */
+.axis-auto-btn {
+  flex-shrink: 0;
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+}
+
+/* ⚡ Comp ボタン active 状態 */
+.btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Canvas wrap */
 .plot-canvas-wrap {
   flex: 1;
   position: relative;
@@ -810,56 +931,35 @@ input[type="range"] {
   min-height: 220px;
 }
 
-.plot-axis-x {
+/* ── Single-stain review プロットの軸ラベル ─────────────────── */
+.ss-plot-body {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 2px 8px 8px;
+  flex-direction: row;
+  align-items: stretch;
 }
 
-.axis-select-x {
-  max-width: 280px;
-  font-size: 11px;
-}
-
-.plot-range-panel {
-  padding: 10px;
-  border-top: 1px solid var(--divider);
-  background: var(--panel-muted);
-  display: grid;
-  gap: 8px;
-}
-
-.range-row {
-  display: grid;
-  grid-template-columns: 18px 1fr 1fr;
-  gap: 8px;
-  align-items: center;
-}
-
-.range-label {
-  font-size: 11px;
-  font-weight: 700;
+.ss-y-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 10px;
   color: var(--muted);
   text-align: center;
+  padding: 0 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 220px;
 }
 
-.range-pair {
-  display: grid;
-  grid-template-columns: 1fr 64px;
-  gap: 4px;
-  align-items: center;
-}
-
-.range-slider {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-.range-num {
-  width: 100% !important;
-  padding: 4px 6px !important;
-  font-size: 11px !important;
+.ss-x-label {
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 2px 4px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 canvas {

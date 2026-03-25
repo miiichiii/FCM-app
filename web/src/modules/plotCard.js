@@ -2,12 +2,23 @@ import { updateAllPlots } from "../state.js";
 import { transformValue } from "./transforms.js";
 import { gateFromPixelRect, gateToPixelRect, addGate, getGateById, getGateAncestors } from "./gate.js";
 import { getThemeColors } from "./theme.js";
+import { getCompSliderConfig } from "./compUi.js";
 
-export function createPlotCard(state, plot, onActivate) {
+/**
+ * createPlotCard — scatter / density plot カードを作成する。
+ * @param {object} state  アプリ状態
+ * @param {object} plot   プロット設定オブジェクト
+ * @param {Function} onActivate アクティブ化コールバック
+ * @param {{ onApplyComp?: Function }} options
+ *   onApplyComp(fromIndex, toIndex, value) — コンペンセーション係数を適用するコールバック
+ */
+export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const el = document.createElement("div");
   el.className = "plot-card";
 
-  // ── ヘッダー: Scale / Mode / Range / Remove のみ ────────────────
+  let isCompMode = false; // Quick Adjust (⚡ Comp) モードフラグ
+
+  // ── Header: Scale | Mode | ⚡ Comp | ✕ ──────────────────────────
   const header = document.createElement("div");
   header.className = "plot-header";
 
@@ -23,29 +34,66 @@ export function createPlotCard(state, plot, onActivate) {
     <option value="density">Density</option>
   `;
 
-  const rangeToggleBtn = document.createElement("button");
-  rangeToggleBtn.className = "btn btn-secondary";
-  rangeToggleBtn.textContent = "Range ▸";
+  const quickAdjustBtn = document.createElement("button");
+  quickAdjustBtn.className = "btn btn-secondary";
+  quickAdjustBtn.textContent = "⚡ Comp";
+  quickAdjustBtn.title = "コンペンセーション調整モード: X/Y 軸スライダーがスピルオーバー係数の調整に切り替わります";
 
   const removeBtn = document.createElement("button");
   removeBtn.className = "btn btn-secondary";
   removeBtn.textContent = "✕";
-  removeBtn.title = "Remove plot";
+  removeBtn.title = "プロットを削除";
 
-  header.append(wrapField("Scale", scaleSel), wrapField("Mode", modeSel), rangeToggleBtn, removeBtn);
+  header.append(wrapField("Scale", scaleSel), wrapField("Mode", modeSel), quickAdjustBtn, removeBtn);
 
-  // ── プロット本体: Y軸select ＋ キャンバス ──────────────────────
-  const plotBody = document.createElement("div");
-  plotBody.className = "plot-body";
-
-  // Y軸選択（左側・縦回転）
+  // ── Y-axis: flex ROW = [ slider-col | select-col ] ─────────────
   const yAxisEl = document.createElement("div");
   yAxisEl.className = "plot-axis-y";
+
+  // 左: スライダー列 (range / comp モードで内容が切り替わる)
+  const ySliderCol = document.createElement("div");
+  ySliderCol.className = "y-slider-col";
+
+  // --- Range モード: Ymax / Ymin スライダー ---
+  const yMaxInput = document.createElement("input");
+  yMaxInput.type = "number"; yMaxInput.className = "axis-range-num"; yMaxInput.placeholder = "max";
+  const yMaxSlider = document.createElement("input");
+  yMaxSlider.type = "range"; yMaxSlider.className = "y-axis-slider";
+  const yMinSlider = document.createElement("input");
+  yMinSlider.type = "range"; yMinSlider.className = "y-axis-slider";
+  const yMinInput = document.createElement("input");
+  yMinInput.type = "number"; yMinInput.className = "axis-range-num"; yMinInput.placeholder = "min";
+
+  const yRangeEl = document.createElement("div");
+  yRangeEl.className = "y-slider-section";
+  yRangeEl.append(yMaxInput, yMaxSlider, yMinSlider, yMinInput);
+
+  // --- Comp モード: Y→X スピルオーバー係数スライダー ---
+  const yCompTop = document.createElement("div");
+  yCompTop.className = "y-comp-edge"; // range max ラベル (例: "+1.00")
+  const yCompSlider = document.createElement("input");
+  yCompSlider.type = "range"; yCompSlider.className = "y-axis-slider";
+  yCompSlider.min = "-1"; yCompSlider.max = "1"; yCompSlider.step = "0.005"; yCompSlider.value = "0";
+  const yCompBot = document.createElement("div");
+  yCompBot.className = "y-comp-edge mono"; // 現在の係数値を表示
+
+  const yCompEl = document.createElement("div");
+  yCompEl.className = "y-slider-section";
+  yCompEl.hidden = true;
+  yCompEl.append(yCompTop, yCompSlider, yCompBot);
+
+  ySliderCol.append(yRangeEl, yCompEl);
+
+  // 右: Y チャンネル select (常時表示・縦回転)
+  const ySelWrap = document.createElement("div");
+  ySelWrap.className = "axis-select-y-wrap";
   const ySel = document.createElement("select");
   ySel.className = "axis-select axis-select-y";
-  yAxisEl.append(ySel);
+  ySelWrap.append(ySel);
 
-  // キャンバスエリア
+  yAxisEl.append(ySliderCol, ySelWrap);
+
+  // ── Canvas ─────────────────────────────────────────────────────
   const canvasWrap = document.createElement("div");
   canvasWrap.className = "plot-canvas-wrap";
   const canvas = document.createElement("canvas");
@@ -57,37 +105,62 @@ export function createPlotCard(state, plot, onActivate) {
   overlay.append(overlayLeft, overlayRight);
   canvasWrap.append(canvas, overlay);
 
+  // ── Plot body ──────────────────────────────────────────────────
+  const plotBody = document.createElement("div");
+  plotBody.className = "plot-body";
   plotBody.append(yAxisEl, canvasWrap);
 
-  // ── X軸選択（キャンバス下部・中央）────────────────────────────
+  // ── X-axis: flex COL = [ X-select 行 | range/comp 制御行 ] ────
   const xAxisEl = document.createElement("div");
   xAxisEl.className = "plot-axis-x";
+
+  // 行 1: X チャンネル select (常時表示)
+  const xSelRow = document.createElement("div");
+  xSelRow.className = "x-sel-row";
   const xSel = document.createElement("select");
   xSel.className = "axis-select axis-select-x";
-  xAxisEl.append(xSel);
+  xSelRow.append(xSel);
 
-  // ── Range パネル（クリックで展開）──────────────────────────────
-  const rangePanel = document.createElement("div");
-  rangePanel.className = "plot-range-panel";
-  rangePanel.hidden = true;
-
-  // xMin / xMax スライダー行
-  const { row: xRangeRow, minInput: xMinInput, maxInput: xMaxInput,
-          minSlider: xMinSlider, maxSlider: xMaxSlider } = createRangeRow("X");
-  // yMin / yMax スライダー行
-  const { row: yRangeRow, minInput: yMinInput, maxInput: yMaxInput,
-          minSlider: yMinSlider, maxSlider: yMaxSlider } = createRangeRow("Y");
-
+  // 行 2a: Range モード — Xmin / Xmax スライダー
+  const xMinInput = document.createElement("input");
+  xMinInput.type = "number"; xMinInput.className = "axis-range-num"; xMinInput.placeholder = "min";
+  const xMinSlider = document.createElement("input");
+  xMinSlider.type = "range"; xMinSlider.className = "x-range-slider";
+  const xMaxSlider = document.createElement("input");
+  xMaxSlider.type = "range"; xMaxSlider.className = "x-range-slider";
+  const xMaxInput = document.createElement("input");
+  xMaxInput.type = "number"; xMaxInput.className = "axis-range-num"; xMaxInput.placeholder = "max";
   const autoBtn = document.createElement("button");
-  autoBtn.className = "btn btn-secondary";
-  autoBtn.textContent = "Auto";
-  autoBtn.title = "Auto range";
+  autoBtn.className = "btn btn-secondary axis-auto-btn";
+  autoBtn.textContent = "Auto"; autoBtn.title = "レンジを自動リセット";
 
-  rangePanel.append(xRangeRow, yRangeRow, autoBtn);
+  const xRangeRow = document.createElement("div");
+  xRangeRow.className = "x-ctrl-row";
+  xRangeRow.append(xMinInput, xMinSlider, xMaxSlider, xMaxInput, autoBtn);
 
-  el.append(header, plotBody, xAxisEl, rangePanel);
+  // 行 2b: Comp モード — X→Y スピルオーバー係数スライダー
+  const xCompLabel = document.createElement("div");
+  xCompLabel.className = "x-comp-label";
+  const xCompSlider = document.createElement("input");
+  xCompSlider.type = "range"; xCompSlider.className = "x-comp-slider";
+  xCompSlider.min = "-1"; xCompSlider.max = "1"; xCompSlider.step = "0.005"; xCompSlider.value = "0";
+  const xCompValue = document.createElement("div");
+  xCompValue.className = "mono x-comp-val";
+  xCompValue.textContent = "0.000";
+  const xResetBtn = document.createElement("button");
+  xResetBtn.className = "btn btn-secondary axis-auto-btn";
+  xResetBtn.textContent = "Reset";
 
-  // ── イベント: アクティブ選択 ────────────────────────────────────
+  const xCompRow = document.createElement("div");
+  xCompRow.className = "x-ctrl-row";
+  xCompRow.hidden = true;
+  xCompRow.append(xCompLabel, xCompSlider, xCompValue, xResetBtn);
+
+  xAxisEl.append(xSelRow, xRangeRow, xCompRow);
+
+  el.append(header, plotBody, xAxisEl);
+
+  // ── アクティブ化 / 削除 ────────────────────────────────────────
   el.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     if (state.activePlotId === plot.id) return;
@@ -103,80 +176,162 @@ export function createPlotCard(state, plot, onActivate) {
     updateAllPlots(state);
   });
 
-  // Range パネル開閉
-  rangeToggleBtn.addEventListener("click", (e) => {
+  // ── Quick Adjust (⚡ Comp) トグル ─────────────────────────────
+  quickAdjustBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    rangePanel.hidden = !rangePanel.hidden;
-    rangeToggleBtn.textContent = rangePanel.hidden ? "Range ▸" : "Range ▾";
-    if (!rangePanel.hidden) syncRangeUI();
+    setCompMode(!isCompMode);
   });
 
+  function setCompMode(enabled) {
+    isCompMode = enabled;
+    quickAdjustBtn.classList.toggle("active", enabled);
+    quickAdjustBtn.textContent = enabled ? "✓ Range" : "⚡ Comp";
+    yRangeEl.hidden = enabled;
+    yCompEl.hidden = !enabled;
+    xRangeRow.hidden = enabled;
+    xCompRow.hidden = !enabled;
+    if (enabled) refreshCompSlidersUI();
+    else syncRangeUI();
+  }
+
+  function refreshCompSlidersUI() {
+    if (!state.comp || !state.dataset) return;
+    const xP = plot.xParam, yP = plot.yParam;
+    const params = state.dataset.params;
+    const xLabel = params[xP]?.label ?? `Ch${xP + 1}`;
+    const yLabel = params[yP]?.label ?? `Ch${yP + 1}`;
+
+    // Y→X: Y チャンネルが X へスピルオーバー
+    const yToX = state.comp.getCoeff(yP, xP);
+    const cfgYX = getCompSliderConfig(yToX);
+    yCompSlider.min = String(cfgYX.min); yCompSlider.max = String(cfgYX.max);
+    yCompSlider.step = String(cfgYX.step);
+    yCompSlider.value = String(Math.max(cfgYX.min, Math.min(cfgYX.max, yToX)));
+    yCompTop.textContent = cfgYX.max.toFixed(2);
+    yCompBot.textContent = yToX.toFixed(3);
+
+    // X→Y: X チャンネルが Y へスピルオーバー
+    const xToY = state.comp.getCoeff(xP, yP);
+    const cfgXY = getCompSliderConfig(xToY);
+    xCompSlider.min = String(cfgXY.min); xCompSlider.max = String(cfgXY.max);
+    xCompSlider.step = String(cfgXY.step);
+    xCompSlider.value = String(Math.max(cfgXY.min, Math.min(cfgXY.max, xToY)));
+    xCompValue.textContent = xToY.toFixed(3);
+    xCompLabel.textContent = `${xLabel}→${yLabel}:`;
+  }
+
   // ── 軸 select ────────────────────────────────────────────────────
-  xSel.addEventListener("change", () => { plot.xParam = Number(xSel.value); updateAllPlots(state); });
-  ySel.addEventListener("change", () => { plot.yParam = Number(ySel.value); updateAllPlots(state); });
+  xSel.addEventListener("change", () => {
+    plot.xParam = Number(xSel.value);
+    if (isCompMode) refreshCompSlidersUI();
+    updateAllPlots(state);
+  });
+  ySel.addEventListener("change", () => {
+    plot.yParam = Number(ySel.value);
+    if (isCompMode) refreshCompSlidersUI();
+    updateAllPlots(state);
+  });
   scaleSel.addEventListener("change", () => { plot.scale = scaleSel.value; updateAllPlots(state); });
   modeSel.addEventListener("change", () => { plot.mode = modeSel.value; updateAllPlots(state); });
 
-  // ── Range スライダー & 数値入力の同期 ────────────────────────────
+  // ── Y レンジスライダー ─────────────────────────────────────────
+  yMaxSlider.addEventListener("input", () => {
+    const v = Number(yMaxSlider.value); plot.yMax = v;
+    yMaxInput.value = v.toFixed(1); updateAllPlots(state);
+  });
+  yMinSlider.addEventListener("input", () => {
+    const v = Number(yMinSlider.value); plot.yMin = v;
+    yMinInput.value = v.toFixed(1); updateAllPlots(state);
+  });
+  yMaxInput.addEventListener("change", () => {
+    const v = toNumberOrNull(yMaxInput.value); plot.yMax = v;
+    if (v != null) setSliderVal(yMaxSlider, v); updateAllPlots(state);
+  });
+  yMinInput.addEventListener("change", () => {
+    const v = toNumberOrNull(yMinInput.value); plot.yMin = v;
+    if (v != null) setSliderVal(yMinSlider, v); updateAllPlots(state);
+  });
+
+  // ── X レンジスライダー ─────────────────────────────────────────
+  xMinSlider.addEventListener("input", () => {
+    const v = Number(xMinSlider.value); plot.xMin = v;
+    xMinInput.value = v.toFixed(1); updateAllPlots(state);
+  });
+  xMaxSlider.addEventListener("input", () => {
+    const v = Number(xMaxSlider.value); plot.xMax = v;
+    xMaxInput.value = v.toFixed(1); updateAllPlots(state);
+  });
+  xMinInput.addEventListener("change", () => {
+    const v = toNumberOrNull(xMinInput.value); plot.xMin = v;
+    if (v != null) setSliderVal(xMinSlider, v); updateAllPlots(state);
+  });
+  xMaxInput.addEventListener("change", () => {
+    const v = toNumberOrNull(xMaxInput.value); plot.xMax = v;
+    if (v != null) setSliderVal(xMaxSlider, v); updateAllPlots(state);
+  });
+  autoBtn.addEventListener("click", () => {
+    plot.xMin = null; plot.xMax = null; plot.yMin = null; plot.yMax = null;
+    syncRangeUI(); updateAllPlots(state);
+  });
+
+  // ── Comp スライダー ────────────────────────────────────────────
+  yCompSlider.addEventListener("input", () => {
+    if (!isCompMode) return;
+    const v = Number(yCompSlider.value);
+    yCompBot.textContent = v.toFixed(3);
+    onApplyComp?.(plot.yParam, plot.xParam, v);
+  });
+  xCompSlider.addEventListener("input", () => {
+    if (!isCompMode) return;
+    const v = Number(xCompSlider.value);
+    xCompValue.textContent = v.toFixed(3);
+    onApplyComp?.(plot.xParam, plot.yParam, v);
+  });
+  xResetBtn.addEventListener("click", () => {
+    if (!isCompMode || !state.comp) return;
+    onApplyComp?.(plot.xParam, plot.yParam, 0);
+    onApplyComp?.(plot.yParam, plot.xParam, 0);
+    refreshCompSlidersUI();
+  });
+
+  // ── Range UI 同期 ─────────────────────────────────────────────
   function syncRangeUI() {
-    // 現在のデータ範囲から自動レンジを取得
     const raw = state.dataset?.preview?.channels;
     const n   = state.dataset?.preview?.n ?? 0;
     const comp = state.comp;
-    const auto = raw ? computeAxisRanges({ plot, raw, n, comp }) : { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
+    const auto = raw ? computeAxisRanges({ plot, raw, n, comp })
+                     : { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
 
     const xMin = plot.xMin ?? auto.xMin;
     const xMax = plot.xMax ?? auto.xMax;
     const yMin = plot.yMin ?? auto.yMin;
     const yMax = plot.yMax ?? auto.yMax;
 
-    // スライダー範囲をデータ幅の3倍に設定
     const xSpan = Math.abs(auto.xMax - auto.xMin) || 1;
     const ySpan = Math.abs(auto.yMax - auto.yMin) || 1;
 
+    // スライダーレンジをデータ幅の2倍に設定
     setSliderRange(xMinSlider, auto.xMin - xSpan, auto.xMax, xMin);
     setSliderRange(xMaxSlider, auto.xMin, auto.xMax + xSpan, xMax);
-    setSliderRange(yMinSlider, auto.yMin - ySpan, auto.yMax, yMin);
     setSliderRange(yMaxSlider, auto.yMin, auto.yMax + ySpan, yMax);
+    setSliderRange(yMinSlider, auto.yMin - ySpan, auto.yMax, yMin);
 
     xMinInput.value = plot.xMin != null ? xMin.toFixed(1) : "";
     xMaxInput.value = plot.xMax != null ? xMax.toFixed(1) : "";
-    yMinInput.value = plot.yMin != null ? yMin.toFixed(1) : "";
     yMaxInput.value = plot.yMax != null ? yMax.toFixed(1) : "";
+    yMinInput.value = plot.yMin != null ? yMin.toFixed(1) : "";
   }
 
   function setSliderRange(slider, min, max, val) {
     slider.min  = String(min);
     slider.max  = String(max);
-    slider.step = String((max - min) / 200);
+    slider.step = String(Math.max(0.001, (max - min) / 200));
     slider.value = String(Math.max(min, Math.min(max, val)));
   }
 
-  function applyRange() {
-    plot.xMin = toNumberOrNull(xMinInput.value);
-    plot.xMax = toNumberOrNull(xMaxInput.value);
-    plot.yMin = toNumberOrNull(yMinInput.value);
-    plot.yMax = toNumberOrNull(yMaxInput.value);
-    updateAllPlots(state);
+  function setSliderVal(slider, val) {
+    slider.value = String(Math.max(Number(slider.min), Math.min(Number(slider.max), val)));
   }
-
-  // スライダー → 数値入力 → 適用
-  xMinSlider.addEventListener("input", () => { xMinInput.value = Number(xMinSlider.value).toFixed(1); plot.xMin = Number(xMinSlider.value); updateAllPlots(state); });
-  xMaxSlider.addEventListener("input", () => { xMaxInput.value = Number(xMaxSlider.value).toFixed(1); plot.xMax = Number(xMaxSlider.value); updateAllPlots(state); });
-  yMinSlider.addEventListener("input", () => { yMinInput.value = Number(yMinSlider.value).toFixed(1); plot.yMin = Number(yMinSlider.value); updateAllPlots(state); });
-  yMaxSlider.addEventListener("input", () => { yMaxInput.value = Number(yMaxSlider.value).toFixed(1); plot.yMax = Number(yMaxSlider.value); updateAllPlots(state); });
-
-  // 数値入力 → 適用
-  for (const inp of [xMinInput, xMaxInput, yMinInput, yMaxInput]) {
-    inp.addEventListener("change", applyRange);
-  }
-
-  autoBtn.addEventListener("click", () => {
-    plot.xMin = null; plot.xMax = null;
-    plot.yMin = null; plot.yMax = null;
-    syncRangeUI();
-    updateAllPlots(state);
-  });
 
   // ── Gate drawing ────────────────────────────────────────────────
   let dragging = null;
@@ -207,7 +362,12 @@ export function createPlotCard(state, plot, onActivate) {
     const dx = Math.abs(dragging.x1 - dragging.x0);
     const dy = Math.abs(dragging.y1 - dragging.y0);
     if (dx >= 4 && dy >= 4) {
-      const gateDef = gateFromPixelRect({ plot, pixelRect: dragging, plotArea: lastGeom.plotArea, axisRanges: lastGeom.axisRanges, scaleParams: lastGeom.scaleParams });
+      const gateDef = gateFromPixelRect({
+        plot, pixelRect: dragging,
+        plotArea: lastGeom.plotArea,
+        axisRanges: lastGeom.axisRanges,
+        scaleParams: lastGeom.scaleParams,
+      });
       addGate(state, gateDef);
     }
     dragging = null;
@@ -218,8 +378,7 @@ export function createPlotCard(state, plot, onActivate) {
   ro.observe(canvasWrap);
 
   const densityCanvas = document.createElement("canvas");
-  densityCanvas.width = 128;
-  densityCanvas.height = 128;
+  densityCanvas.width = 128; densityCanvas.height = 128;
   const densityCtx = densityCanvas.getContext("2d");
 
   // ── render ──────────────────────────────────────────────────────
@@ -236,16 +395,18 @@ export function createPlotCard(state, plot, onActivate) {
     }
 
     const params = dataset.params;
-    // 軸 select の選択肢を更新
     const opts = params.map((p, i) => `<option value="${i}">${p.label}</option>`).join("");
     xSel.innerHTML = opts;
     ySel.innerHTML = opts;
-    xSel.value = String(plot.xParam);
-    ySel.value = String(plot.yParam);
+    xSel.value  = String(plot.xParam);
+    ySel.value  = String(plot.yParam);
     scaleSel.value = plot.scale;
-    modeSel.value = plot.mode;
+    modeSel.value  = plot.mode;
 
-    const dpi = window.devicePixelRatio || 1;
+    if (isCompMode) refreshCompSlidersUI();
+    else syncRangeUI();
+
+    const dpi  = window.devicePixelRatio || 1;
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
     if (cssW === 0 || cssH === 0) return;
@@ -259,19 +420,19 @@ export function createPlotCard(state, plot, onActivate) {
     const theme = getThemeColors();
 
     const plotArea = {
-      left: 10 * dpi,
-      top: 10 * dpi,
-      width: w - 20 * dpi,
+      left:   10 * dpi,
+      top:    10 * dpi,
+      width:  w - 20 * dpi,
       height: h - 20 * dpi,
     };
 
     const scaleParams = {
-      arcsinhCofactor: plot.arcsinhCofactor,
+      arcsinhCofactor:  plot.arcsinhCofactor,
       logicleLinthresh: plot.logicleLinthresh,
     };
 
-    const raw = dataset.preview.channels;
-    const n = dataset.preview.n;
+    const raw  = dataset.preview.channels;
+    const n    = dataset.preview.n;
     const comp = state.comp;
 
     const axisRanges = computeAxisRanges({ plot, raw, n, comp });
@@ -286,42 +447,42 @@ export function createPlotCard(state, plot, onActivate) {
     ctx.fillStyle = theme.plotCanvasBg;
     ctx.fillRect(0, 0, w, h);
 
-    // Axes frame
     ctx.strokeStyle = theme.plotFrame;
     ctx.lineWidth = Math.max(1, dpi);
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
     const selectedGate = getGateById(state, state.selectedGateId);
-    const gateChain = selectedGate ? [selectedGate, ...getGateAncestors(state, selectedGate.id)] : [];
-    const gateDefs = gateChain.map(g => g.definition).filter(Boolean);
+    const gateChain = selectedGate
+      ? [selectedGate, ...getGateAncestors(state, selectedGate.id)]
+      : [];
+    const gateDefs = gateChain.map((g) => g.definition).filter(Boolean);
 
     let usedN = 0;
     let totalN = n;
 
     if (plot.mode === "density") {
-      const canUseFull = state.fullApply.status === "done" && state.fullApply.appliedRevision === state.compRevision;
+      const canUseFull = state.fullApply.status === "done" &&
+        state.fullApply.appliedRevision === state.compRevision;
+
       if (canUseFull) {
-        const key = `${plot.xParam}-${plot.yParam}-${plot.scale}-${axisRanges.xMin}-${axisRanges.xMax}-${axisRanges.yMin}-${axisRanges.yMax}-${gateChain.map(g=>g.id).join(',')}`;
-        const cached = state.density.cacheByPlotId.get(plot.id);
+        const key = `${plot.xParam}-${plot.yParam}-${plot.scale}-${axisRanges.xMin}-${axisRanges.xMax}-${axisRanges.yMin}-${axisRanges.yMax}-${gateChain.map((g) => g.id).join(",")}`;
+        const cached  = state.density.cacheByPlotId.get(plot.id);
         const pending = state.density.pendingByPlotId.get(plot.id);
 
         if (cached && cached.key === key) {
-          totalN = cached.total;
-          usedN = cached.nPassed;
+          totalN = cached.total; usedN = cached.nPassed;
           if (densityCtx) {
             const img = densityCtx.createImageData(cached.width, cached.height);
             const out = img.data;
             const denom = Math.log(1 + cached.maxCount);
             for (let i = 0; i < cached.counts.length; i++) {
-              const c = cached.counts[i];
-              const t = denom > 0 ? Math.log(1 + c) / denom : 0;
+              const t = denom > 0 ? Math.log(1 + cached.counts[i]) / denom : 0;
               const [r, g, b, a] = densityColor(t, theme);
               const o = i * 4;
-              out[o]=r; out[o+1]=g; out[o+2]=b; out[o+3]=a;
+              out[o] = r; out[o+1] = g; out[o+2] = b; out[o+3] = a;
             }
             densityCtx.putImageData(img, 0, 0);
-            ctx.save();
-            ctx.imageSmoothingEnabled = false;
+            ctx.save(); ctx.imageSmoothingEnabled = false;
             ctx.drawImage(densityCanvas, plotArea.left, plotArea.top, plotArea.width, plotArea.height);
             ctx.restore();
           }
@@ -329,19 +490,21 @@ export function createPlotCard(state, plot, onActivate) {
           if (!pending || pending.key !== key) {
             const requestId = state.density.nextRequestId++;
             state.density.pendingByPlotId.set(plot.id, { requestId, key });
-            state.fullWorker.postMessage({ type: "density", requestId, plotId: plot.id, key, xParam: plot.xParam, yParam: plot.yParam, scale: plot.scale, axisRanges, scaleParams, gates: gateDefs, binsW: densityCanvas.width, binsH: densityCanvas.height });
+            state.fullWorker.postMessage({
+              type: "density", requestId, plotId: plot.id, key,
+              xParam: plot.xParam, yParam: plot.yParam, scale: plot.scale,
+              axisRanges, scaleParams, gates: gateDefs,
+              binsW: densityCanvas.width, binsH: densityCanvas.height,
+            });
           }
           ctx.fillStyle = theme.plotLoading;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.font = `${14 * dpi}px sans-serif`;
           ctx.fillText("Loading full density…", plotArea.left + plotArea.width / 2, plotArea.top + plotArea.height / 2);
-          totalN = state.dataset.nEvents;
-          usedN = 0;
+          totalN = state.dataset.nEvents; usedN = 0;
         }
       } else {
-        const binsW = densityCanvas.width;
-        const binsH = densityCanvas.height;
+        const binsW = densityCanvas.width, binsH = densityCanvas.height;
         const counts = new Uint32Array(binsW * binsH);
         let maxCount = 0;
 
@@ -361,7 +524,6 @@ export function createPlotCard(state, plot, onActivate) {
           if (c > maxCount) maxCount = c;
           usedN++;
         }
-
         if (densityCtx) {
           const img = densityCtx.createImageData(binsW, binsH);
           const out = img.data;
@@ -370,11 +532,10 @@ export function createPlotCard(state, plot, onActivate) {
             const t = denom > 0 ? Math.log(1 + counts[i]) / denom : 0;
             const [r, g, b, a] = densityColor(t, theme);
             const o = i * 4;
-            out[o]=r; out[o+1]=g; out[o+2]=b; out[o+3]=a;
+            out[o] = r; out[o+1] = g; out[o+2] = b; out[o+3] = a;
           }
           densityCtx.putImageData(img, 0, 0);
-          ctx.save();
-          ctx.imageSmoothingEnabled = false;
+          ctx.save(); ctx.imageSmoothingEnabled = false;
           ctx.drawImage(densityCanvas, plotArea.left, plotArea.top, plotArea.width, plotArea.height);
           ctx.restore();
         }
@@ -391,7 +552,7 @@ export function createPlotCard(state, plot, onActivate) {
         const py = plotArea.top + (1 - (yt - yMinT) / (yMaxT - yMinT)) * plotArea.height;
         if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
         if (px < plotArea.left || px > plotArea.left + plotArea.width) continue;
-        if (py < plotArea.top || py > plotArea.top + plotArea.height) continue;
+        if (py < plotArea.top  || py > plotArea.top  + plotArea.height) continue;
         ctx.fillRect(px, py, Math.max(1, dpi), Math.max(1, dpi));
         usedN++;
       }
@@ -405,7 +566,10 @@ export function createPlotCard(state, plot, onActivate) {
         const isSelected = gate.id === selectedGate.id;
         ctx.strokeStyle = isSelected ? theme.plotGateSelected : theme.plotGate;
         ctx.lineWidth = Math.max(isSelected ? 2 : 1, (isSelected ? 2 : 1) * dpi);
-        ctx.strokeRect(Math.min(gateRect.x0, gateRect.x1), Math.min(gateRect.y0, gateRect.y1), Math.abs(gateRect.x1 - gateRect.x0), Math.abs(gateRect.y1 - gateRect.y0));
+        ctx.strokeRect(
+          Math.min(gateRect.x0, gateRect.x1), Math.min(gateRect.y0, gateRect.y1),
+          Math.abs(gateRect.x1 - gateRect.x0), Math.abs(gateRect.y1 - gateRect.y0),
+        );
       }
     }
 
@@ -413,55 +577,30 @@ export function createPlotCard(state, plot, onActivate) {
       ctx.strokeStyle = theme.plotDrag;
       ctx.lineWidth = Math.max(2, 2 * dpi);
       ctx.setLineDash([6 * dpi, 4 * dpi]);
-      ctx.strokeRect(Math.min(dragging.x0, dragging.x1), Math.min(dragging.y0, dragging.y1), Math.abs(dragging.x1 - dragging.x0), Math.abs(dragging.y1 - dragging.y0));
+      ctx.strokeRect(
+        Math.min(dragging.x0, dragging.x1), Math.min(dragging.y0, dragging.y1),
+        Math.abs(dragging.x1 - dragging.x0), Math.abs(dragging.y1 - dragging.y0),
+      );
       ctx.setLineDash([]);
     }
 
-    const xLabel = params[plot.xParam]?.label ?? `#${plot.xParam + 1}`;
-    const yLabel = params[plot.yParam]?.label ?? `#${plot.yParam + 1}`;
     overlayLeft.textContent = `N=${usedN.toLocaleString()}/${totalN.toLocaleString()}`;
     const modeLabel = plot.mode === "density" ? "density" : "scatter";
-    const canUseFull = state.fullApply.status === "done" && state.fullApply.appliedRevision === state.compRevision;
-    const scopeLabel = (plot.mode === "density" && canUseFull) ? "full" : (dataset.nEvents > totalN ? "preview" : "full");
-    const gateLabel = selectedGate ? `, ${selectedGate.name}` : "";
+    const canUseFull = state.fullApply.status === "done" &&
+      state.fullApply.appliedRevision === state.compRevision;
+    const scopeLabel = (plot.mode === "density" && canUseFull)
+      ? "full"
+      : (dataset.nEvents > totalN ? "preview" : "full");
+    const selectedGate2 = getGateById(state, state.selectedGateId);
+    const gateLabel = selectedGate2 ? `, ${selectedGate2.name}` : "";
     overlayRight.textContent = `${modeLabel}, ${scopeLabel}${gateLabel}`;
     if (scopeLabel === "preview") overlayRight.textContent += ` of ${dataset.nEvents.toLocaleString()}`;
-
-    // Range パネルが開いていれば同期
-    if (!rangePanel.hidden) syncRangeUI();
   }
 
   return { el, render };
 }
 
-// ── Range行: label + [min slider + min input] + [max slider + max input] ─
-function createRangeRow(axis) {
-  const row = document.createElement("div");
-  row.className = "range-row";
-
-  const lbl = document.createElement("span");
-  lbl.className = "range-label";
-  lbl.textContent = axis;
-
-  const minSlider = document.createElement("input");
-  minSlider.type = "range"; minSlider.className = "range-slider";
-  const minInput = document.createElement("input");
-  minInput.type = "number"; minInput.className = "range-num"; minInput.placeholder = "min";
-
-  const maxSlider = document.createElement("input");
-  maxSlider.type = "range"; maxSlider.className = "range-slider";
-  const maxInput = document.createElement("input");
-  maxInput.type = "number"; maxInput.className = "range-num"; maxInput.placeholder = "max";
-
-  const minWrap = document.createElement("div"); minWrap.className = "range-pair";
-  minWrap.append(minSlider, minInput);
-  const maxWrap = document.createElement("div"); maxWrap.className = "range-pair";
-  maxWrap.append(maxSlider, maxInput);
-
-  row.append(lbl, minWrap, maxWrap);
-  return { row, minInput, maxInput, minSlider, maxSlider };
-}
-
+// ── ヘルパー: フィールドラベル付き wrap ──────────────────────────
 function wrapField(labelText, inputEl) {
   const wrap = document.createElement("label");
   wrap.className = "field";
@@ -498,7 +637,12 @@ function densityColor(t, theme) {
     return [lerpInt(0, accent[0], u), lerpInt(0, accent[1], u), lerpInt(0, accent[2], u), a];
   }
   const u = (tt - 0.7) / 0.3;
-  return [lerpInt(accent[0], theme.densityPeak[0], u), lerpInt(accent[1], theme.densityPeak[1], u), lerpInt(accent[2], theme.densityPeak[2], u), a];
+  return [
+    lerpInt(accent[0], theme.densityPeak[0], u),
+    lerpInt(accent[1], theme.densityPeak[1], u),
+    lerpInt(accent[2], theme.densityPeak[2], u),
+    a,
+  ];
 }
 
 function lerpInt(a, b, t) {
