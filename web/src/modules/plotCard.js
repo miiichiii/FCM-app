@@ -55,18 +55,14 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   ySliderCol.className = "y-slider-col";
 
   // --- Range モード: Ymax / Ymin スライダー ---
-  const yMaxInput = document.createElement("input");
-  yMaxInput.type = "number"; yMaxInput.className = "axis-range-num"; yMaxInput.placeholder = "max";
   const yMaxSlider = document.createElement("input");
   yMaxSlider.type = "range"; yMaxSlider.className = "y-axis-slider";
   const yMinSlider = document.createElement("input");
   yMinSlider.type = "range"; yMinSlider.className = "y-axis-slider";
-  const yMinInput = document.createElement("input");
-  yMinInput.type = "number"; yMinInput.className = "axis-range-num"; yMinInput.placeholder = "min";
 
   const yRangeEl = document.createElement("div");
   yRangeEl.className = "y-slider-section";
-  yRangeEl.append(yMaxInput, yMaxSlider, yMinSlider, yMinInput);
+  yRangeEl.append(yMaxSlider, yMinSlider);
 
   // --- Comp モード: Y→X スピルオーバー係数スライダー ---
   const yCompTop = document.createElement("div");
@@ -122,21 +118,17 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   xSelRow.append(xSel);
 
   // 行 2a: Range モード — Xmin / Xmax スライダー
-  const xMinInput = document.createElement("input");
-  xMinInput.type = "number"; xMinInput.className = "axis-range-num"; xMinInput.placeholder = "min";
   const xMinSlider = document.createElement("input");
   xMinSlider.type = "range"; xMinSlider.className = "x-range-slider";
   const xMaxSlider = document.createElement("input");
   xMaxSlider.type = "range"; xMaxSlider.className = "x-range-slider";
-  const xMaxInput = document.createElement("input");
-  xMaxInput.type = "number"; xMaxInput.className = "axis-range-num"; xMaxInput.placeholder = "max";
   const autoBtn = document.createElement("button");
   autoBtn.className = "btn btn-secondary axis-auto-btn";
   autoBtn.textContent = "Auto"; autoBtn.title = "レンジを自動リセット";
 
   const xRangeRow = document.createElement("div");
   xRangeRow.className = "x-ctrl-row";
-  xRangeRow.append(xMinInput, xMinSlider, xMaxSlider, xMaxInput, autoBtn);
+  xRangeRow.append(xMinSlider, xMaxSlider, autoBtn);
 
   // 行 2b: Comp モード — X→Y スピルオーバー係数スライダー
   const xCompLabel = document.createElement("div");
@@ -236,38 +228,22 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
 
   // ── Y レンジスライダー ─────────────────────────────────────────
   yMaxSlider.addEventListener("input", () => {
-    const v = Number(yMaxSlider.value); plot.yMax = v;
-    yMaxInput.value = v.toFixed(1); updateAllPlots(state);
+    plot.yMax = Number(yMaxSlider.value);
+    updateAllPlots(state);
   });
   yMinSlider.addEventListener("input", () => {
-    const v = Number(yMinSlider.value); plot.yMin = v;
-    yMinInput.value = v.toFixed(1); updateAllPlots(state);
-  });
-  yMaxInput.addEventListener("change", () => {
-    const v = toNumberOrNull(yMaxInput.value); plot.yMax = v;
-    if (v != null) setSliderVal(yMaxSlider, v); updateAllPlots(state);
-  });
-  yMinInput.addEventListener("change", () => {
-    const v = toNumberOrNull(yMinInput.value); plot.yMin = v;
-    if (v != null) setSliderVal(yMinSlider, v); updateAllPlots(state);
+    plot.yMin = Number(yMinSlider.value);
+    updateAllPlots(state);
   });
 
   // ── X レンジスライダー ─────────────────────────────────────────
   xMinSlider.addEventListener("input", () => {
-    const v = Number(xMinSlider.value); plot.xMin = v;
-    xMinInput.value = v.toFixed(1); updateAllPlots(state);
+    plot.xMin = Number(xMinSlider.value);
+    updateAllPlots(state);
   });
   xMaxSlider.addEventListener("input", () => {
-    const v = Number(xMaxSlider.value); plot.xMax = v;
-    xMaxInput.value = v.toFixed(1); updateAllPlots(state);
-  });
-  xMinInput.addEventListener("change", () => {
-    const v = toNumberOrNull(xMinInput.value); plot.xMin = v;
-    if (v != null) setSliderVal(xMinSlider, v); updateAllPlots(state);
-  });
-  xMaxInput.addEventListener("change", () => {
-    const v = toNumberOrNull(xMaxInput.value); plot.xMax = v;
-    if (v != null) setSliderVal(xMaxSlider, v); updateAllPlots(state);
+    plot.xMax = Number(xMaxSlider.value);
+    updateAllPlots(state);
   });
   autoBtn.addEventListener("click", () => {
     plot.xMin = null; plot.xMax = null; plot.yMin = null; plot.yMax = null;
@@ -315,11 +291,6 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     setSliderRange(xMaxSlider, auto.xMin, auto.xMax + xSpan, xMax);
     setSliderRange(yMaxSlider, auto.yMin, auto.yMax + ySpan, yMax);
     setSliderRange(yMinSlider, auto.yMin - ySpan, auto.yMax, yMin);
-
-    xMinInput.value = plot.xMin != null ? xMin.toFixed(1) : "";
-    xMaxInput.value = plot.xMax != null ? xMax.toFixed(1) : "";
-    yMaxInput.value = plot.yMax != null ? yMax.toFixed(1) : "";
-    yMinInput.value = plot.yMin != null ? yMin.toFixed(1) : "";
   }
 
   function setSliderRange(slider, min, max, val) {
@@ -450,6 +421,9 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     ctx.strokeStyle = theme.plotFrame;
     ctx.lineWidth = Math.max(1, dpi);
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
+
+    // ── 軸目盛り ──────────────────────────────────────────────────
+    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme);
 
     const selectedGate = getGateById(state, state.selectedGateId);
     const gateChain = selectedGate
@@ -652,6 +626,102 @@ function lerpInt(a, b, t) {
 function clearCanvas(canvas) {
   const ctx = canvas.getContext("2d");
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ── 軸目盛り描画 ──────────────────────────────────────────────────
+function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme) {
+  const { xMin, xMax, yMin, yMax } = axisRanges;
+  const xMinT = transformValue(scale, xMin, scaleParams);
+  const xMaxT = transformValue(scale, xMax, scaleParams);
+  const yMinT = transformValue(scale, yMin, scaleParams);
+  const yMaxT = transformValue(scale, yMax, scaleParams);
+  const denomX = xMaxT - xMinT || 1;
+  const denomY = yMaxT - yMinT || 1;
+
+  ctx.save();
+  ctx.fillStyle = theme.plotText ?? "rgba(66,53,39,0.6)";
+  ctx.globalAlpha = 0.7;
+  const fs = Math.max(6, Math.round(8.5 * dpi));
+  ctx.font = `${fs}px ui-monospace,monospace`;
+
+  // X-axis ticks (inside bottom edge)
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  const xTicks = computeTicks(xMin, xMax, scale, 4);
+  for (const v of xTicks) {
+    const t = transformValue(scale, v, scaleParams);
+    const nx = (t - xMinT) / denomX;
+    if (nx < 0.02 || nx > 0.98) continue;
+    const px = plotArea.left + nx * plotArea.width;
+    const py = plotArea.top + plotArea.height;
+    ctx.fillRect(px - 0.5, py - 4 * dpi, 1, 4 * dpi);
+    ctx.fillText(fmtTick(v), px, py - 5 * dpi);
+  }
+
+  // Y-axis ticks (inside left edge)
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const yTicks = computeTicks(yMin, yMax, scale, 4);
+  for (const v of yTicks) {
+    const t = transformValue(scale, v, scaleParams);
+    const ny = (t - yMinT) / denomY;
+    if (ny < 0.03 || ny > 0.97) continue;
+    const py = plotArea.top + (1 - ny) * plotArea.height;
+    ctx.fillRect(plotArea.left, py - 0.5, 4 * dpi, 1);
+    ctx.fillText(fmtTick(v), plotArea.left + 5 * dpi, py);
+  }
+  ctx.restore();
+}
+
+function computeTicks(min, max, scale, n) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return [];
+  if (scale === "linear") return linearTicks(min, max, n);
+
+  // logicle / arcsinh: use 0 + powers of 10
+  const ticks = [];
+  if (min < 0) {
+    const startExp = Math.floor(Math.log10(-min));
+    for (let e = startExp; e >= 0; e--) {
+      const v = -Math.pow(10, e);
+      if (v >= min * 1.01) ticks.push(v);
+    }
+  }
+  if (min <= 0 && 0 <= max) ticks.push(0);
+  const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
+  const posEnd = Math.ceil(Math.log10(Math.max(1, max)));
+  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+    const v = Math.pow(10, e);
+    if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
+  }
+  if (ticks.length < 2) return linearTicks(min, max, n);
+  return ticks;
+}
+
+function linearTicks(min, max, n) {
+  const range = max - min;
+  if (!range) return [];
+  const rough = range / n;
+  const exp = Math.floor(Math.log10(rough || 1));
+  const base = Math.pow(10, exp);
+  const m = rough / base;
+  let step = m < 1.5 ? base : m < 3.5 ? 2 * base : m < 7.5 ? 5 * base : 10 * base;
+  const ticks = [];
+  const start = Math.ceil(min / step) * step;
+  for (let v = start; v <= max * 1.001 && ticks.length < n + 2; v += step) {
+    ticks.push(parseFloat(v.toPrecision(8)));
+  }
+  return ticks;
+}
+
+function fmtTick(v) {
+  if (v === 0) return "0";
+  const abs = Math.abs(v);
+  if (abs >= 1e5) return (v / 1000).toFixed(0) + "k";
+  if (abs >= 1e4) return (v / 1000).toFixed(1) + "k";
+  if (abs >= 100) return String(Math.round(v));
+  if (abs >= 1) return String(Math.round(v * 10) / 10);
+  if (abs >= 0.1) return v.toPrecision(1);
+  return v.toExponential(0);
 }
 
 function computeAxisRanges({ plot, raw, n, comp }) {

@@ -1,13 +1,14 @@
 import { transformValue } from "./transforms.js";
 import { getThemeColors } from "./theme.js";
-// compUi imports removed — sliders are now handled in the Compensation Matrix section
+import { getCompSliderConfig } from "./compUi.js";
 
 const SCALE_PARAMS = {
   arcsinhCofactor: 150,
   logicleLinthresh: 100,
 };
 
-export function renderSingleStainReview({ container, sample, currentPair, getCoeff, onPickPair, onChangeCoeff }) {
+export function renderSingleStainReview({ container, sample, currentPair, getCoeff, onPickPair, onChangeCoeff, onApplyComp }) {
+  const applyComp = onApplyComp ?? onChangeCoeff;
   container.innerHTML = "";
   if (!sample) return;
 
@@ -42,13 +43,35 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
   for (const xRef of xRefs) {
     const xSample = sample.referenceToSample.get(xRef);
     const xLabel = sample.referenceParams[xRef]?.label ?? `#${xRef + 1}`;
-    const coeff = Number(getCoeff?.(yRef, xRef) ?? 0);
+    // coeffYtoX: yRef→xRef spillover (used for drawing / X-axis slider)
+    const coeffYtoX = Number(getCoeff?.(yRef, xRef) ?? 0);
+    // coeffXtoY: xRef→yRef spillover (Y-axis slider)
+    const coeffXtoY = Number(getCoeff?.(xRef, yRef) ?? 0);
 
     const card = document.createElement("div");
     card.className = "single-stain-plot";
     card.classList.toggle("selected", currentPair?.from === yRef && currentPair?.to === xRef);
 
-    // ── キャンバス: Y ラベル(左) + canvas + X ラベル(下) ─────────
+    // ── Y-axis slider column (left of canvas): xRef→yRef spillover ──
+    const ssYSliderCol = document.createElement("div");
+    ssYSliderCol.className = "ss-y-slider-col";
+
+    const cfgXtoY = getCompSliderConfig(coeffXtoY);
+    const yCompSlider = document.createElement("input");
+    yCompSlider.type = "range";
+    yCompSlider.className = "ss-y-comp-slider";
+    yCompSlider.min = String(cfgXtoY.min);
+    yCompSlider.max = String(cfgXtoY.max);
+    yCompSlider.step = String(cfgXtoY.step);
+    yCompSlider.value = String(Math.max(cfgXtoY.min, Math.min(cfgXtoY.max, coeffXtoY)));
+
+    const ySliderVal = document.createElement("div");
+    ySliderVal.className = "ss-slider-val";
+    ySliderVal.textContent = coeffXtoY.toFixed(3);
+
+    ssYSliderCol.append(yCompSlider, ySliderVal);
+
+    // ── キャンバス: Y ラベル(左) + canvas ────────────────────────
     const plotBody = document.createElement("div");
     plotBody.className = "ss-plot-body";
 
@@ -59,25 +82,63 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     const canvas = document.createElement("canvas");
     canvas.className = "single-stain-canvas";
 
-    plotBody.append(yLabelEl, canvas);
+    plotBody.append(ssYSliderCol, yLabelEl, canvas);
+
+    // ── X-axis control row (below canvas): yRef→xRef spillover ───
+    const cfgYtoX = getCompSliderConfig(coeffYtoX);
+    const xCompSlider = document.createElement("input");
+    xCompSlider.type = "range";
+    xCompSlider.className = "ss-x-comp-slider";
+    xCompSlider.min = String(cfgYtoX.min);
+    xCompSlider.max = String(cfgYtoX.max);
+    xCompSlider.step = String(cfgYtoX.step);
+    xCompSlider.value = String(Math.max(cfgYtoX.min, Math.min(cfgYtoX.max, coeffYtoX)));
+
+    const xSliderVal = document.createElement("div");
+    xSliderVal.className = "ss-slider-val";
+    xSliderVal.textContent = coeffYtoX.toFixed(3);
 
     const xLabelEl = document.createElement("div");
     xLabelEl.className = "ss-x-label";
     xLabelEl.textContent = xLabel;
 
-    // カードクリックでペアを選択
-    card.addEventListener("click", () => onPickPair?.(yRef, xRef));
-    card.style.cursor = "pointer";
+    const ssXCtrlRow = document.createElement("div");
+    ssXCtrlRow.className = "ss-x-ctrl-row";
+    ssXCtrlRow.append(xLabelEl, xCompSlider, xSliderVal);
 
-    // 係数表示フッター (クリックでコンペンセーションタブのペアを切り替え)
+    // 係数表示フッター
     const footer = document.createElement("div");
     footer.className = "single-stain-plot-footer";
-    footer.textContent = `coeff: ${coeff.toFixed(3)}`;
+    footer.textContent = `coeff: ${coeffYtoX.toFixed(3)}`;
 
-    card.append(plotBody, xLabelEl, footer);
+    // カードクリックでペアを選択（スライダークリックは伝播させない）
+    card.addEventListener("click", () => onPickPair?.(yRef, xRef));
+    card.style.cursor = "pointer";
+    yCompSlider.addEventListener("click", (e) => e.stopPropagation());
+    xCompSlider.addEventListener("click", (e) => e.stopPropagation());
+
+    // Y スライダー: xRef→yRef
+    yCompSlider.addEventListener("input", (e) => {
+      e.stopPropagation();
+      const v = Number(yCompSlider.value);
+      ySliderVal.textContent = v.toFixed(3);
+      applyComp?.(xRef, yRef, v);
+    });
+
+    // X スライダー: yRef→xRef (キャンバスをリアルタイム更新)
+    xCompSlider.addEventListener("input", (e) => {
+      e.stopPropagation();
+      const v = Number(xCompSlider.value);
+      xSliderVal.textContent = v.toFixed(3);
+      footer.textContent = `coeff: ${v.toFixed(3)}`;
+      drawSingleStainPlot(canvas, sample, xSample, ySample, v);
+      applyComp?.(yRef, xRef, v);
+    });
+
+    card.append(plotBody, ssXCtrlRow, footer);
     grid.appendChild(card);
 
-    drawSingleStainPlot(canvas, sample, xSample, ySample, coeff);
+    drawSingleStainPlot(canvas, sample, xSample, ySample, coeffYtoX);
   }
 }
 

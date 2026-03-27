@@ -897,16 +897,6 @@ input[type="range"] {
   text-align: right;
 }
 
-/* 共通の数値入力 (range num) */
-.axis-range-num {
-  width: 44px !important;
-  padding: 2px 3px !important;
-  font-size: 10px !important;
-  text-align: center;
-  border-radius: 6px !important;
-  flex-shrink: 0;
-}
-
 /* Auto / Reset ボタン */
 .axis-auto-btn {
   flex-shrink: 0;
@@ -936,6 +926,52 @@ input[type="range"] {
   display: flex;
   flex-direction: row;
   align-items: stretch;
+}
+
+/* Y-axis comp slider column (left of canvas) */
+.ss-y-slider-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 26px;
+  flex-shrink: 0;
+  padding: 4px 2px;
+  gap: 3px;
+}
+
+.ss-y-comp-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  -webkit-appearance: slider-vertical;
+  width: 16px;
+  flex: 1;
+  min-height: 30px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* X-axis comp slider row (below canvas) */
+.ss-x-ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 2px;
+}
+
+.ss-x-comp-slider {
+  flex: 1;
+  min-width: 30px;
+  accent-color: var(--accent);
+}
+
+/* Coefficient value label for both sliders */
+.ss-slider-val {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-align: center;
+  min-width: 34px;
+  flex-shrink: 0;
 }
 
 .ss-y-label {
