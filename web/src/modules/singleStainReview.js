@@ -117,11 +117,12 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     yCompSlider.addEventListener("click", (e) => e.stopPropagation());
     xCompSlider.addEventListener("click", (e) => e.stopPropagation());
 
-    // Y スライダー: xRef→yRef
+    // Y スライダー: xRef→yRef (キャンバスをリアルタイム更新)
     yCompSlider.addEventListener("input", (e) => {
       e.stopPropagation();
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v);
       applyComp?.(xRef, yRef, v);
     });
 
@@ -131,18 +132,18 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       const v = Number(xCompSlider.value);
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
-      drawSingleStainPlot(canvas, sample, xSample, ySample, v);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value));
       applyComp?.(yRef, xRef, v);
     });
 
     card.append(plotBody, ssXCtrlRow, footer);
     grid.appendChild(card);
 
-    drawSingleStainPlot(canvas, sample, xSample, ySample, coeffYtoX);
+    drawSingleStainPlot(canvas, sample, xSample, ySample, coeffYtoX, coeffXtoY);
   }
 }
 
-function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff) {
+function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff, coeffXtoY = 0) {
   const n = sample.parsed.preview.n ?? 0;
   const xRaw = sample.parsed.preview.channels[xIndex] ?? new Float32Array(0);
   const yRaw = sample.parsed.preview.channels[yIndex] ?? new Float32Array(0);
@@ -184,7 +185,7 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff) {
   }
 
   const xRange = computeRobustRange(xRaw, yRaw, n, coeff, true);
-  const yRange = computeRobustRange(yRaw, yRaw, n, 0, false);
+  const yRange = computeRobustRange(yRaw, xRaw, n, coeffXtoY, true);
   const xMinT = transformValue("logicle", xRange.min, SCALE_PARAMS);
   const xMaxT = transformValue("logicle", xRange.max, SCALE_PARAMS);
   const yMinT = transformValue("logicle", yRange.min, SCALE_PARAMS);
@@ -197,8 +198,9 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff) {
 
   for (let i = 0; i < n; i++) {
     const xComp = xRaw[i] - coeff * yRaw[i];
+    const yComp = yRaw[i] - coeffXtoY * xRaw[i];
     const xv = transformValue("logicle", xComp, SCALE_PARAMS);
-    const yv = transformValue("logicle", yRaw[i], SCALE_PARAMS);
+    const yv = transformValue("logicle", yComp, SCALE_PARAMS);
     const nx = (xv - xMinT) / denomX;
     const ny = (yv - yMinT) / denomY;
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) continue;

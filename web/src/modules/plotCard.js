@@ -39,12 +39,17 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   quickAdjustBtn.textContent = "⚡ Comp";
   quickAdjustBtn.title = "コンペンセーション調整モード: X/Y 軸スライダーがスピルオーバー係数の調整に切り替わります";
 
+  const savePngBtn = document.createElement("button");
+  savePngBtn.className = "btn btn-secondary save-png-btn";
+  savePngBtn.textContent = "💾";
+  savePngBtn.title = "PNG として保存";
+
   const removeBtn = document.createElement("button");
   removeBtn.className = "btn btn-secondary";
   removeBtn.textContent = "✕";
   removeBtn.title = "プロットを削除";
 
-  header.append(wrapField("Scale", scaleSel), wrapField("Mode", modeSel), quickAdjustBtn, removeBtn);
+  header.append(wrapField("Scale", scaleSel), wrapField("Mode", modeSel), quickAdjustBtn, savePngBtn, removeBtn);
 
   // ── Y-axis: flex ROW = [ slider-col | select-col ] ─────────────
   const yAxisEl = document.createElement("div");
@@ -100,6 +105,16 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const overlayRight = document.createElement("div");
   overlay.append(overlayLeft, overlayRight);
   canvasWrap.append(canvas, overlay);
+
+  // PNG 保存ボタン
+  savePngBtn.addEventListener("click", () => {
+    const link = document.createElement("a");
+    const xName = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
+    const yName = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
+    link.download = `plot_${yName}_vs_${xName}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  });
 
   // ── Plot body ──────────────────────────────────────────────────
   const plotBody = document.createElement("div");
@@ -390,10 +405,10 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     const theme = getThemeColors();
 
     const plotArea = {
-      left:   10 * dpi,
-      top:    10 * dpi,
-      width:  w - 20 * dpi,
-      height: h - 20 * dpi,
+      left:   52 * dpi,
+      top:    8 * dpi,
+      width:  w - 60 * dpi,
+      height: h - 36 * dpi,
     };
 
     const scaleParams = {
@@ -422,7 +437,9 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
     // ── 軸目盛り ──────────────────────────────────────────────────
-    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme);
+    const xLabel = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
+    const yLabel = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
+    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme, xLabel, yLabel);
 
     const selectedGate = getGateById(state, state.selectedGateId);
     const gateChain = selectedGate
@@ -628,7 +645,7 @@ function clearCanvas(canvas) {
 }
 
 // ── 軸目盛り描画 ──────────────────────────────────────────────────
-function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme) {
+function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme, xLabel, yLabel) {
   const { xMin, xMax, yMin, yMax } = axisRanges;
   const xMinT = transformValue(scale, xMin, scaleParams);
   const xMaxT = transformValue(scale, xMax, scaleParams);
@@ -636,39 +653,77 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
   const yMaxT = transformValue(scale, yMax, scaleParams);
   const denomX = xMaxT - xMinT || 1;
   const denomY = yMaxT - yMinT || 1;
+  const right  = plotArea.left + plotArea.width;
+  const bottom = plotArea.top  + plotArea.height;
 
   ctx.save();
-  ctx.fillStyle = theme.plotText ?? "rgba(66,53,39,0.6)";
-  ctx.globalAlpha = 0.7;
-  const fs = Math.max(6, Math.round(8.5 * dpi));
+  ctx.fillStyle  = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.strokeStyle = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.globalAlpha = 0.85;
+  const fs = Math.max(7, Math.round(9 * dpi));
   ctx.font = `${fs}px ui-monospace,monospace`;
 
-  // X-axis ticks (inside bottom edge)
+  // X-axis ticks: label & tick mark BELOW the plot box
   ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
+  ctx.textBaseline = "top";
   const xTicks = computeTicks(xMin, xMax, scale, 4);
   for (const v of xTicks) {
-    const t = transformValue(scale, v, scaleParams);
+    const t  = transformValue(scale, v, scaleParams);
     const nx = (t - xMinT) / denomX;
     if (nx < 0.02 || nx > 0.98) continue;
     const px = plotArea.left + nx * plotArea.width;
-    const py = plotArea.top + plotArea.height;
-    ctx.fillRect(px - 0.5, py - 4 * dpi, 1, 4 * dpi);
-    ctx.fillText(fmtTick(v), px, py - 5 * dpi);
+    // tick mark extending downward from bottom edge
+    ctx.beginPath();
+    ctx.moveTo(px, bottom);
+    ctx.lineTo(px, bottom + 4 * dpi);
+    ctx.lineWidth = Math.max(1, dpi * 0.8);
+    ctx.stroke();
+    ctx.fillText(fmtTick(v), px, bottom + 5 * dpi);
   }
 
-  // Y-axis ticks (inside left edge)
-  ctx.textAlign = "left";
+  // Y-axis ticks: label & tick mark LEFT of the plot box
+  ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   const yTicks = computeTicks(yMin, yMax, scale, 4);
   for (const v of yTicks) {
-    const t = transformValue(scale, v, scaleParams);
+    const t  = transformValue(scale, v, scaleParams);
     const ny = (t - yMinT) / denomY;
     if (ny < 0.03 || ny > 0.97) continue;
     const py = plotArea.top + (1 - ny) * plotArea.height;
-    ctx.fillRect(plotArea.left, py - 0.5, 4 * dpi, 1);
-    ctx.fillText(fmtTick(v), plotArea.left + 5 * dpi, py);
+    // tick mark extending leftward from left edge
+    ctx.beginPath();
+    ctx.moveTo(plotArea.left, py);
+    ctx.lineTo(plotArea.left - 4 * dpi, py);
+    ctx.lineWidth = Math.max(1, dpi * 0.8);
+    ctx.stroke();
+    ctx.fillText(fmtTick(v), plotArea.left - 6 * dpi, py);
   }
+
+  // X-axis title
+  if (xLabel) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(8, Math.round(10 * dpi))}px sans-serif`;
+    ctx.globalAlpha = 0.9;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    const canvasH = plotArea.top + plotArea.height + 34 * dpi;
+    ctx.fillText(xLabel, plotArea.left + plotArea.width / 2, canvasH);
+    ctx.restore();
+  }
+
+  // Y-axis title (rotated)
+  if (yLabel) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(8, Math.round(10 * dpi))}px sans-serif`;
+    ctx.globalAlpha = 0.9;
+    ctx.translate(12 * dpi, plotArea.top + plotArea.height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(yLabel, 0, 0);
+    ctx.restore();
+  }
+
   ctx.restore();
 }
 
