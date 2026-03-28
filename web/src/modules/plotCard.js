@@ -192,23 +192,23 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     const xLabel = params[xP]?.label ?? `Ch${xP + 1}`;
     const yLabel = params[yP]?.label ?? `Ch${yP + 1}`;
 
-    // Y→X: Y チャンネルが X へスピルオーバー
-    const yToX = state.comp.getCoeff(yP, xP);
-    const cfgYX = getCompSliderConfig(yToX);
-    yCompSlider.min = String(cfgYX.min); yCompSlider.max = String(cfgYX.max);
-    yCompSlider.step = String(cfgYX.step);
-    yCompSlider.value = String(Math.max(cfgYX.min, Math.min(cfgYX.max, yToX)));
-    yCompTop.textContent = cfgYX.max.toFixed(2);
-    yCompBot.textContent = yToX.toFixed(3);
-
-    // X→Y: X チャンネルが Y へスピルオーバー
+    // X→Y: X チャンネルが Y へスピルオーバー (Y スライダーが制御)
     const xToY = state.comp.getCoeff(xP, yP);
     const cfgXY = getCompSliderConfig(xToY);
-    xCompSlider.min = String(cfgXY.min); xCompSlider.max = String(cfgXY.max);
-    xCompSlider.step = String(cfgXY.step);
-    xCompSlider.value = String(Math.max(cfgXY.min, Math.min(cfgXY.max, xToY)));
-    xCompValue.textContent = xToY.toFixed(3);
-    xCompLabel.textContent = `${xLabel}→${yLabel}:`;
+    yCompSlider.min = String(cfgXY.min); yCompSlider.max = String(cfgXY.max);
+    yCompSlider.step = String(cfgXY.step);
+    yCompSlider.value = String(Math.max(cfgXY.min, Math.min(cfgXY.max, xToY)));
+    yCompTop.textContent = `${xLabel}→${yLabel}`;
+    yCompBot.textContent = xToY.toFixed(3);
+
+    // Y→X: Y チャンネルが X へスピルオーバー (X スライダーが制御)
+    const yToX = state.comp.getCoeff(yP, xP);
+    const cfgYX = getCompSliderConfig(yToX);
+    xCompSlider.min = String(cfgYX.min); xCompSlider.max = String(cfgYX.max);
+    xCompSlider.step = String(cfgYX.step);
+    xCompSlider.value = String(Math.max(cfgYX.min, Math.min(cfgYX.max, yToX)));
+    xCompValue.textContent = yToX.toFixed(3);
+    xCompLabel.textContent = `${yLabel}→${xLabel}:`;
   }
 
   // ── 軸 select ────────────────────────────────────────────────────
@@ -254,13 +254,13 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     if (!isCompMode) return;
     const v = Number(yCompSlider.value);
     yCompBot.textContent = v.toFixed(3);
-    onApplyComp?.(plot.yParam, plot.xParam, v);
+    onApplyComp?.(plot.xParam, plot.yParam, v);
   });
   xCompSlider.addEventListener("input", () => {
     if (!isCompMode) return;
     const v = Number(xCompSlider.value);
     xCompValue.textContent = v.toFixed(3);
-    onApplyComp?.(plot.xParam, plot.yParam, v);
+    onApplyComp?.(plot.yParam, plot.xParam, v);
   });
   xResetBtn.addEventListener("click", () => {
     if (!isCompMode || !state.comp) return;
