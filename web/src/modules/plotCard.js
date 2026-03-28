@@ -177,7 +177,6 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   function setCompMode(enabled) {
     isCompMode = enabled;
     quickAdjustBtn.classList.toggle("active", enabled);
-    quickAdjustBtn.textContent = enabled ? "✓ Range" : "⚡ Comp";
     yRangeEl.hidden = enabled;
     yCompEl.hidden = !enabled;
     xRangeRow.hidden = enabled;

@@ -44,6 +44,7 @@ const applyStatusEl = document.getElementById("applyStatus");
 const singleStainInput = document.getElementById("singleStainInput");
 const singleStainListEl = document.getElementById("singleStainList");
 const singleStainSectionEl = document.getElementById("singleStainSection");
+const singleStainEmptyHintEl = document.getElementById("singleStainEmptyHint");
 const singleStainGridEl = document.getElementById("singleStainGrid");
 const singleStainSummaryEl = document.getElementById("singleStainSummary");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
@@ -452,12 +453,14 @@ function refreshSingleStainReviewUI() {
 
   if (state.singleStain.samples.length === 0) {
     singleStainSectionEl.hidden = true;
+    if (singleStainEmptyHintEl) singleStainEmptyHintEl.hidden = false;
     singleStainSummaryEl.textContent = "Load single-stain FCS files to review compensation pairs.";
     singleStainGridEl.innerHTML = "";
     return;
   }
 
   singleStainSectionEl.hidden = false;
+  if (singleStainEmptyHintEl) singleStainEmptyHintEl.hidden = true;
   const sample = getActiveSingleStainSample();
   if (!sample) {
     singleStainSummaryEl.textContent = "Pick a single-stain file.";
