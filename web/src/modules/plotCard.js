@@ -110,22 +110,11 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   savePngBtn.addEventListener("click", () => {
     const xName = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
     const yName = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
-    // Render at 300 DPI: target 3.5 inch wide → 1050px; scale factor vs screen
-    const CSS_W = canvas.getBoundingClientRect().width || 400;
-    const CSS_H = canvas.getBoundingClientRect().height || 300;
-    const TARGET_DPI = 300;
-    const INCH_W = CSS_W / 96; // assume 96 CSS px/inch
-    const exportW = Math.round(INCH_W * TARGET_DPI);
-    const exportH = Math.round((CSS_H / CSS_W) * exportW);
-    const exportCanvas = document.createElement("canvas");
-    exportCanvas.width  = exportW;
-    exportCanvas.height = exportH;
-    const ectx = exportCanvas.getContext("2d");
-    // Scale the existing canvas content to export size
-    ectx.drawImage(canvas, 0, 0, exportW, exportH);
+    // Export the native canvas pixel buffer (already scaled by devicePixelRatio,
+    // giving 2x–3x resolution on HiDPI displays — sufficient for print quality).
     const link = document.createElement("a");
-    link.download = `plot_${yName}_vs_${xName}_300dpi.png`;
-    link.href = exportCanvas.toDataURL("image/png");
+    link.download = `plot_${yName}_vs_${xName}.png`;
+    link.href = canvas.toDataURL("image/png");
     link.click();
   });
 
@@ -420,7 +409,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     // プロット内余白 (CSS px 単位 — canvas 内のデータ描画領域を定義)
     const LEFT_MARGIN   = 45;
     const TOP_MARGIN    =  8;
-    const RIGHT_MARGIN  =  8;
+    const RIGHT_MARGIN  = 40; // extra space for density colorbar
     const BOTTOM_MARGIN = 30;
 
     const plotArea = {
@@ -567,6 +556,11 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
       }
     }
 
+    // Density colorbar (density mode only)
+    if (plot.mode === "density") {
+      drawDensityColorbar(ctx, plotArea, dpi, theme);
+    }
+
     // Gate overlays
     for (const gate of gateChain) {
       if (!gate.definition) continue;
@@ -661,6 +655,48 @@ function lerpInt(a, b, t) {
 function clearCanvas(canvas) {
   const ctx = canvas.getContext("2d");
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ── Density colorbar ─────────────────────────────────────────────
+function drawDensityColorbar(ctx, plotArea, dpi, theme) {
+  const cbW = 10 * dpi;
+  const gap  =  6 * dpi;
+  const cbX  = plotArea.left + plotArea.width + gap;
+  const cbY  = plotArea.top;
+  const cbH  = plotArea.height;
+
+  // Background (for alpha=0 at low end)
+  ctx.save();
+  ctx.fillStyle = theme.plotCanvasBg ?? "#fff";
+  ctx.fillRect(cbX, cbY, cbW, cbH);
+
+  // Gradient strip — top = high density, bottom = low density
+  for (let i = 0; i <= Math.ceil(cbH); i++) {
+    const t = 1 - i / cbH;
+    const [r, g, b, a] = densityColor(t, theme);
+    if (a > 0) {
+      ctx.fillStyle = `rgba(${r},${g},${b},${(a / 255).toFixed(3)})`;
+      ctx.fillRect(cbX, cbY + i, cbW, 1);
+    }
+  }
+
+  // Border
+  ctx.strokeStyle = theme.plotFrame ?? "rgba(0,0,0,0.4)";
+  ctx.lineWidth   = Math.max(1, dpi * 0.7);
+  ctx.strokeRect(cbX, cbY, cbW, cbH);
+
+  // "H" / "L" labels
+  const fs = Math.max(7, Math.round(8 * dpi));
+  ctx.font         = `${fs}px ui-monospace,monospace`;
+  ctx.fillStyle    = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.globalAlpha  = 0.8;
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("H", cbX + cbW + 2 * dpi, cbY);
+  ctx.textBaseline = "bottom";
+  ctx.fillText("L", cbX + cbW + 2 * dpi, cbY + cbH);
+
+  ctx.restore();
 }
 
 // ── 軸目盛り描画 ──────────────────────────────────────────────────

@@ -124,7 +124,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
       applyComp?.(xRef, yRef, v);
-      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v, xLabel, yLabel);
     });
 
     // X スライダー: yRef→xRef (キャンバスをリアルタイム更新)
@@ -134,17 +134,17 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
       applyComp?.(yRef, xRef, v);
-      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value));
+      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value), xLabel, yLabel);
     });
 
     card.append(plotBody, ssXCtrlRow, footer);
     grid.appendChild(card);
 
-    drawSingleStainPlot(canvas, sample, xSample, ySample, coeffYtoX, coeffXtoY);
+    drawSingleStainPlot(canvas, sample, xSample, ySample, coeffYtoX, coeffXtoY, xLabel, yLabel);
   }
 }
 
-function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff, coeffXtoY = 0) {
+function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff, coeffXtoY = 0, xLabel = "", yLabel = "") {
   const n = sample.parsed.preview.n ?? 0;
   const xRaw = sample.parsed.preview.channels[xIndex] ?? new Float32Array(0);
   const yRaw = sample.parsed.preview.channels[yIndex] ?? new Float32Array(0);
@@ -165,11 +165,12 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff, coeffXtoY = 
   ctx.fillStyle = theme.plotCanvasBg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  const SS_LEFT = 48, SS_TOP = 10, SS_RIGHT = 8, SS_BOTTOM = 36;
   const plotArea = {
-    left: 16 * dpr,
-    top: 16 * dpr,
-    width: canvas.width - 32 * dpr,
-    height: canvas.height - 32 * dpr,
+    left: SS_LEFT * dpr,
+    top: SS_TOP * dpr,
+    width: canvas.width - (SS_LEFT + SS_RIGHT) * dpr,
+    height: canvas.height - (SS_TOP + SS_BOTTOM) * dpr,
   };
 
   ctx.strokeStyle = theme.plotFrame;
@@ -210,6 +211,9 @@ function drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff, coeffXtoY = 
     const py = plotArea.top + (1 - ny) * plotArea.height;
     ctx.fillRect(px, py, pointSize, pointSize);
   }
+
+  // Axis ticks and labels
+  drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLabel, SS_LEFT);
 }
 
 function computeRobustRange(primaryValues, secondaryValues, n, coeff, applyComp) {
@@ -240,6 +244,130 @@ function createEmptyState(text) {
   el.className = "single-stain-empty";
   el.textContent = text;
   return el;
+}
+
+// ── Axis tick helpers (mirrors plotCard.js) ───────────────────────
+function drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLabel, leftMarginPx = 48) {
+  const xMinT = transformValue("logicle", xRange.min, SCALE_PARAMS);
+  const xMaxT = transformValue("logicle", xRange.max, SCALE_PARAMS);
+  const yMinT = transformValue("logicle", yRange.min, SCALE_PARAMS);
+  const yMaxT = transformValue("logicle", yRange.max, SCALE_PARAMS);
+  const denomX = xMaxT - xMinT || 1;
+  const denomY = yMaxT - yMinT || 1;
+  const right  = plotArea.left + plotArea.width;
+  const bottom = plotArea.top  + plotArea.height;
+
+  ctx.save();
+  ctx.fillStyle   = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.strokeStyle = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.globalAlpha = 0.85;
+  const fs = Math.max(7, Math.round(8 * dpr));
+  ctx.font = `${fs}px ui-monospace,monospace`;
+
+  // X-axis ticks
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "top";
+  const xTicks = computeSSTicks(xRange.min, xRange.max, 4);
+  for (const v of xTicks) {
+    const t  = transformValue("logicle", v, SCALE_PARAMS);
+    const nx = (t - xMinT) / denomX;
+    if (nx < 0.02 || nx > 0.98) continue;
+    const px = plotArea.left + nx * plotArea.width;
+    ctx.beginPath();
+    ctx.moveTo(px, bottom);
+    ctx.lineTo(px, bottom + 4 * dpr);
+    ctx.lineWidth = Math.max(1, dpr * 0.8);
+    ctx.stroke();
+    ctx.fillText(fmtSSTick(v), px, bottom + 5 * dpr);
+  }
+
+  // Y-axis ticks
+  ctx.textAlign    = "right";
+  ctx.textBaseline = "middle";
+  const yTicks = computeSSTicks(yRange.min, yRange.max, 4);
+  for (const v of yTicks) {
+    const t  = transformValue("logicle", v, SCALE_PARAMS);
+    const ny = (t - yMinT) / denomY;
+    if (ny < 0.03 || ny > 0.97) continue;
+    const py = plotArea.top + (1 - ny) * plotArea.height;
+    ctx.beginPath();
+    ctx.moveTo(plotArea.left, py);
+    ctx.lineTo(plotArea.left - 4 * dpr, py);
+    ctx.lineWidth = Math.max(1, dpr * 0.8);
+    ctx.stroke();
+    ctx.fillText(fmtSSTick(v), plotArea.left - 6 * dpr, py);
+  }
+
+  // X-axis title
+  if (xLabel) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(8, Math.round(9 * dpr))}px sans-serif`;
+    ctx.globalAlpha = 0.9;
+    ctx.textAlign    = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(xLabel, plotArea.left + plotArea.width / 2, bottom + 18 * dpr);
+    ctx.restore();
+  }
+
+  // Y-axis title (rotated)
+  if (yLabel) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(8, Math.round(9 * dpr))}px sans-serif`;
+    ctx.globalAlpha = 0.9;
+    const yTitleX = Math.max(8, (leftMarginPx - 32)) * dpr;
+    ctx.translate(yTitleX, plotArea.top + plotArea.height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign    = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(yLabel, 0, 0);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function computeSSTicks(min, max, n) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return [];
+  // logicle: use 0 + powers of 10
+  const ticks = [];
+  if (min < 0) {
+    const startExp = Math.floor(Math.log10(-min));
+    for (let e = startExp; e >= 0; e--) {
+      const v = -Math.pow(10, e);
+      if (v >= min * 1.01) ticks.push(v);
+    }
+  }
+  if (min <= 0 && 0 <= max) ticks.push(0);
+  const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
+  const posEnd   = Math.ceil(Math.log10(Math.max(1, max)));
+  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+    const v = Math.pow(10, e);
+    if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
+  }
+  if (ticks.length < 2) {
+    const range = max - min;
+    const rough = range / n;
+    const exp   = Math.floor(Math.log10(rough || 1));
+    const base  = Math.pow(10, exp);
+    const m     = rough / base;
+    let step = m < 1.5 ? base : m < 3.5 ? 2 * base : m < 7.5 ? 5 * base : 10 * base;
+    const start = Math.ceil(min / step) * step;
+    for (let v = start; v <= max * 1.001 && ticks.length < n + 2; v += step) {
+      ticks.push(parseFloat(v.toPrecision(8)));
+    }
+  }
+  return ticks;
+}
+
+function fmtSSTick(v) {
+  if (v === 0) return "0";
+  const abs = Math.abs(v);
+  if (abs >= 1e5) return (v / 1000).toFixed(0) + "k";
+  if (abs >= 1e4) return (v / 1000).toFixed(1) + "k";
+  if (abs >= 100) return String(Math.round(v));
+  if (abs >= 1)   return String(Math.round(v * 10) / 10);
+  if (abs >= 0.1) return v.toPrecision(1);
+  return v.toExponential(0);
 }
 
 
