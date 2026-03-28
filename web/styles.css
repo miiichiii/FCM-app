@@ -49,6 +49,9 @@
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
+/* Ensure [hidden] attribute always hides elements, even when display is set by other rules */
+[hidden] { display: none !important; }
+
 body[data-theme="dark"] {
   --bg: #0b1020;
   --bg-gradient-1: rgba(110, 168, 255, 0.25);
