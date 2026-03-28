@@ -417,11 +417,17 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     if (!ctx) return;
     const theme = getThemeColors();
 
+    // プロット内余白 (CSS px 単位 — canvas 内のデータ描画領域を定義)
+    const LEFT_MARGIN   = 45;
+    const TOP_MARGIN    =  8;
+    const RIGHT_MARGIN  =  8;
+    const BOTTOM_MARGIN = 30;
+
     const plotArea = {
-      left:   52 * dpi,
-      top:    8 * dpi,
-      width:  w - 60 * dpi,
-      height: h - 36 * dpi,
+      left:   LEFT_MARGIN   * dpi,
+      top:    TOP_MARGIN    * dpi,
+      width:  w - (LEFT_MARGIN + RIGHT_MARGIN)   * dpi,
+      height: h - (TOP_MARGIN  + BOTTOM_MARGIN)  * dpi,
     };
 
     const scaleParams = {
@@ -452,7 +458,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     // ── 軸目盛り ──────────────────────────────────────────────────
     const xLabel = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
     const yLabel = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
-    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme, xLabel, yLabel);
+    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme, xLabel, yLabel, LEFT_MARGIN);
 
     const selectedGate = getGateById(state, state.selectedGateId);
     const gateChain = selectedGate
@@ -658,7 +664,7 @@ function clearCanvas(canvas) {
 }
 
 // ── 軸目盛り描画 ──────────────────────────────────────────────────
-function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme, xLabel, yLabel) {
+function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme, xLabel, yLabel, leftMarginPx = 45) {
   const { xMin, xMax, yMin, yMax } = axisRanges;
   const xMinT = transformValue(scale, xMin, scaleParams);
   const xMaxT = transformValue(scale, xMax, scaleParams);
@@ -725,15 +731,17 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
     ctx.restore();
   }
 
-  // Y-axis title (rotated)
+  // Y-axis title (rotated) — データボックス左マージン内に配置
   if (yLabel) {
     ctx.save();
     ctx.font = `bold ${Math.max(8, Math.round(10 * dpi))}px sans-serif`;
     ctx.globalAlpha = 0.9;
-    ctx.translate(12 * dpi, plotArea.top + plotArea.height / 2);
+    // tick ラベル幅 (~30px) + 余白を確保した位置に Y タイトルを配置
+    const yTitleX = Math.max(8, (leftMarginPx - 32)) * dpi;
+    ctx.translate(yTitleX, plotArea.top + plotArea.height / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    ctx.textBaseline = "middle";
     ctx.fillText(yLabel, 0, 0);
     ctx.restore();
   }

@@ -118,12 +118,13 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     xCompSlider.addEventListener("click", (e) => e.stopPropagation());
 
     // Y スライダー: xRef→yRef (キャンバスをリアルタイム更新)
+    // applyComp で state を更新してから canvas を再描画することで順序を保証
     yCompSlider.addEventListener("input", (e) => {
       e.stopPropagation();
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
-      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v);
       applyComp?.(xRef, yRef, v);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v);
     });
 
     // X スライダー: yRef→xRef (キャンバスをリアルタイム更新)
@@ -132,8 +133,8 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       const v = Number(xCompSlider.value);
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
-      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value));
       applyComp?.(yRef, xRef, v);
+      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value));
     });
 
     card.append(plotBody, ssXCtrlRow, footer);

@@ -820,6 +820,9 @@ input[type="range"] {
   min-height: 30px;
   accent-color: var(--accent);
   cursor: pointer;
+  touch-action: none;        /* スクロール干渉を防ぎ pointer events を確実に捕捉 */
+  position: relative;
+  z-index: 3;                /* axis-select-y (z-index:2) より上に配置 */
 }
 
 /* comp モードのレンジ端ラベル ("+1.00" / 現在値) */
@@ -951,6 +954,7 @@ input[type="range"] {
   min-height: 30px;
   accent-color: var(--accent);
   cursor: pointer;
+  touch-action: none;        /* スクロール干渉を防ぎ pointer events を確実に捕捉 */
 }
 
 /* X-axis comp slider row (below canvas) */
