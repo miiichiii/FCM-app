@@ -106,13 +106,26 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   overlay.append(overlayLeft, overlayRight);
   canvasWrap.append(canvas, overlay);
 
-  // PNG 保存ボタン
+  // PNG 保存ボタン（300 DPI 相当の高解像度出力）
   savePngBtn.addEventListener("click", () => {
-    const link = document.createElement("a");
     const xName = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
     const yName = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
-    link.download = `plot_${yName}_vs_${xName}.png`;
-    link.href = canvas.toDataURL("image/png");
+    // Render at 300 DPI: target 3.5 inch wide → 1050px; scale factor vs screen
+    const CSS_W = canvas.getBoundingClientRect().width || 400;
+    const CSS_H = canvas.getBoundingClientRect().height || 300;
+    const TARGET_DPI = 300;
+    const INCH_W = CSS_W / 96; // assume 96 CSS px/inch
+    const exportW = Math.round(INCH_W * TARGET_DPI);
+    const exportH = Math.round((CSS_H / CSS_W) * exportW);
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width  = exportW;
+    exportCanvas.height = exportH;
+    const ectx = exportCanvas.getContext("2d");
+    // Scale the existing canvas content to export size
+    ectx.drawImage(canvas, 0, 0, exportW, exportH);
+    const link = document.createElement("a");
+    link.download = `plot_${yName}_vs_${xName}_300dpi.png`;
+    link.href = exportCanvas.toDataURL("image/png");
     link.click();
   });
 
@@ -699,15 +712,16 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
     ctx.fillText(fmtTick(v), plotArea.left - 6 * dpi, py);
   }
 
-  // X-axis title
+  // X-axis title (centered below tick labels, inside canvas bottom margin)
   if (xLabel) {
     ctx.save();
     ctx.font = `bold ${Math.max(8, Math.round(10 * dpi))}px sans-serif`;
     ctx.globalAlpha = 0.9;
     ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    const canvasH = plotArea.top + plotArea.height + 34 * dpi;
-    ctx.fillText(xLabel, plotArea.left + plotArea.width / 2, canvasH);
+    ctx.textBaseline = "top";
+    // bottom is plotArea.top + plotArea.height = h - 28*dpi
+    // Place title 18px below bottom edge (tick labels are 5px below + ~9px tall)
+    ctx.fillText(xLabel, plotArea.left + plotArea.width / 2, bottom + 18 * dpi);
     ctx.restore();
   }
 
