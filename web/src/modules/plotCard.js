@@ -1,5 +1,5 @@
 import { updateAllPlots } from "../state.js";
-import { transformValue } from "./transforms.js";
+import { transformValue, inverseTransformValue } from "./transforms.js";
 import { gateFromPixelRect, gateToPixelRect, addGate, getGateById, getGateAncestors } from "./gate.js";
 import { getThemeColors } from "./theme.js";
 import { getCompSliderConfig } from "./compUi.js";
@@ -22,12 +22,11 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const header = document.createElement("div");
   header.className = "plot-header";
 
-  const scaleSel = document.createElement("select");
-  scaleSel.innerHTML = `
-    <option value="linear">Linear</option>
-    <option value="logicle">Logicle</option>
-    <option value="arcsinh">Arcsinh</option>
-  `;
+  const SCALE_OPTS = `<option value="linear">Linear</option><option value="logicle">Logicle</option><option value="arcsinh">Arcsinh</option>`;
+  const xScaleSel = document.createElement("select");
+  xScaleSel.innerHTML = SCALE_OPTS;
+  const yScaleSel = document.createElement("select");
+  yScaleSel.innerHTML = SCALE_OPTS;
   const modeSel = document.createElement("select");
   modeSel.innerHTML = `
     <option value="scatter">Scatter</option>
@@ -49,7 +48,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   removeBtn.textContent = "✕";
   removeBtn.title = "プロットを削除";
 
-  header.append(wrapField("Scale", scaleSel), wrapField("Mode", modeSel), quickAdjustBtn, savePngBtn, removeBtn);
+  header.append(wrapField("X-Scale", xScaleSel), wrapField("Y-Scale", yScaleSel), wrapField("Mode", modeSel), quickAdjustBtn, savePngBtn, removeBtn);
 
   // ── Y-axis: flex ROW = [ slider-col | select-col ] ─────────────
   const yAxisEl = document.createElement("div");
@@ -127,25 +126,29 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const xAxisEl = document.createElement("div");
   xAxisEl.className = "plot-axis-x";
 
-  // 行 1: X チャンネル select (常時表示)
+  // 行 1: X チャンネル select + Auto ボタン (常時表示)
   const xSelRow = document.createElement("div");
   xSelRow.className = "x-sel-row";
   const xSel = document.createElement("select");
   xSel.className = "axis-select axis-select-x";
-  xSelRow.append(xSel);
+  const xAutoBtn = document.createElement("button");
+  xAutoBtn.className = "btn btn-secondary axis-auto-btn";
+  xAutoBtn.textContent = "X-Auto"; xAutoBtn.title = "X軸レンジを自動リセット (canvas端の▲▼▶◀マーカーでドラッグ調整も可)";
+  const yAutoBtn = document.createElement("button");
+  yAutoBtn.className = "btn btn-secondary axis-auto-btn";
+  yAutoBtn.textContent = "Y-Auto"; yAutoBtn.title = "Y軸レンジを自動リセット";
+  xSelRow.append(xSel, xAutoBtn, yAutoBtn);
 
-  // 行 2a: Range モード — Xmin / Xmax スライダー
+  // Range スライダー (非表示: canvas マーカードラッグで代替)
   const xMinSlider = document.createElement("input");
   xMinSlider.type = "range"; xMinSlider.className = "x-range-slider";
   const xMaxSlider = document.createElement("input");
   xMaxSlider.type = "range"; xMaxSlider.className = "x-range-slider";
-  const autoBtn = document.createElement("button");
-  autoBtn.className = "btn btn-secondary axis-auto-btn";
-  autoBtn.textContent = "Auto"; autoBtn.title = "レンジを自動リセット";
 
   const xRangeRow = document.createElement("div");
   xRangeRow.className = "x-ctrl-row";
-  xRangeRow.append(xMinSlider, xMaxSlider, autoBtn);
+  xRangeRow.hidden = true; // 常時非表示 (スライダーUI廃止)
+  xRangeRow.append(xMinSlider, xMaxSlider);
 
   // 行 2b: Comp モード — X→Y スピルオーバー係数スライダー
   const xCompLabel = document.createElement("div");
@@ -194,9 +197,10 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   function setCompMode(enabled) {
     isCompMode = enabled;
     quickAdjustBtn.classList.toggle("active", enabled);
-    yRangeEl.hidden = enabled;
+    // Range slider rows always hidden (canvas drag markers replace them)
+    yRangeEl.hidden = true;
     yCompEl.hidden = !enabled;
-    xRangeRow.hidden = enabled;
+    xRangeRow.hidden = true;
     xCompRow.hidden = !enabled;
     if (enabled) refreshCompSlidersUI();
     else syncRangeUI();
@@ -239,7 +243,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     if (isCompMode) refreshCompSlidersUI();
     updateAllPlots(state);
   });
-  scaleSel.addEventListener("change", () => { plot.scale = scaleSel.value; updateAllPlots(state); });
+  xScaleSel.addEventListener("change", () => { plot.xScale = xScaleSel.value; updateAllPlots(state); });
+  yScaleSel.addEventListener("change", () => { plot.yScale = yScaleSel.value; updateAllPlots(state); });
   modeSel.addEventListener("change", () => { plot.mode = modeSel.value; updateAllPlots(state); });
 
   // ── Y レンジスライダー ─────────────────────────────────────────
@@ -261,8 +266,12 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     plot.xMax = Number(xMaxSlider.value);
     updateAllPlots(state);
   });
-  autoBtn.addEventListener("click", () => {
-    plot.xMin = null; plot.xMax = null; plot.yMin = null; plot.yMax = null;
+  xAutoBtn.addEventListener("click", () => {
+    plot.xMin = null; plot.xMax = null;
+    syncRangeUI(); updateAllPlots(state);
+  });
+  yAutoBtn.addEventListener("click", () => {
+    plot.yMin = null; plot.yMax = null;
     syncRangeUI(); updateAllPlots(state);
   });
 
@@ -320,22 +329,58 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     slider.value = String(Math.max(Number(slider.min), Math.min(Number(slider.max), val)));
   }
 
-  // ── Gate drawing ────────────────────────────────────────────────
+  // ── Range marker drag (triangle handles on axis margins) ────────
+  let rangeDrag = null; // { axis: "x"|"y", which: "min"|"max" }
   let dragging = null;
   let lastGeom = null;
 
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    if (!lastGeom) return;
+    const pt = toCanvasPoint(canvas, e);
+    // Check range marker hit first
+    const hit = hitRangeMarker(pt, lastGeom.plotArea, window.devicePixelRatio || 1);
+    if (hit) {
+      canvas.setPointerCapture(e.pointerId);
+      rangeDrag = hit;
+      return;
+    }
     if (!state.gatingArmed) return;
     if (state.activePlotId !== plot.id) return;
-    if (!lastGeom) return;
     canvas.setPointerCapture(e.pointerId);
-    const pt = toCanvasPoint(canvas, e);
     dragging = { x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y };
     render();
   });
 
   canvas.addEventListener("pointermove", (e) => {
+    if (rangeDrag) {
+      const pt = toCanvasPoint(canvas, e);
+      const { plotArea, axisRanges, scaleParams } = lastGeom;
+      const dpi = window.devicePixelRatio || 1;
+      const xMinT = transformValue(plot.xScale, axisRanges.xMin, scaleParams);
+      const xMaxT = transformValue(plot.xScale, axisRanges.xMax, scaleParams);
+      const yMinT = transformValue(plot.yScale, axisRanges.yMin, scaleParams);
+      const yMaxT = transformValue(plot.yScale, axisRanges.yMax, scaleParams);
+      const bottom = plotArea.top + plotArea.height;
+      if (rangeDrag.axis === "x") {
+        const nx = Math.max(0, Math.min(1, (pt.x - plotArea.left) / plotArea.width));
+        const val = inverseTransformValue(plot.xScale, xMinT + nx * (xMaxT - xMinT), scaleParams);
+        if (rangeDrag.which === "min") {
+          if (val < (plot.xMax ?? axisRanges.xMax)) { plot.xMin = val; syncRangeUI(); updateAllPlots(state); }
+        } else {
+          if (val > (plot.xMin ?? axisRanges.xMin)) { plot.xMax = val; syncRangeUI(); updateAllPlots(state); }
+        }
+      } else {
+        const ny = Math.max(0, Math.min(1, (pt.y - plotArea.top) / plotArea.height));
+        const val = inverseTransformValue(plot.yScale, yMaxT - ny * (yMaxT - yMinT), scaleParams);
+        if (rangeDrag.which === "max") {
+          if (val > (plot.yMin ?? axisRanges.yMin)) { plot.yMax = val; syncRangeUI(); updateAllPlots(state); }
+        } else {
+          if (val < (plot.yMax ?? axisRanges.yMax)) { plot.yMin = val; syncRangeUI(); updateAllPlots(state); }
+        }
+      }
+      return;
+    }
     if (!dragging) return;
     const pt = toCanvasPoint(canvas, e);
     dragging.x1 = pt.x; dragging.y1 = pt.y;
@@ -343,6 +388,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   });
 
   canvas.addEventListener("pointerup", (e) => {
+    if (rangeDrag) { rangeDrag = null; return; }
     if (!dragging) return;
     const pt = toCanvasPoint(canvas, e);
     dragging.x1 = pt.x; dragging.y1 = pt.y;
@@ -365,7 +411,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   ro.observe(canvasWrap);
 
   const densityCanvas = document.createElement("canvas");
-  densityCanvas.width = 128; densityCanvas.height = 128;
+  densityCanvas.width = 256; densityCanvas.height = 256;
   const densityCtx = densityCanvas.getContext("2d");
 
   // ── render ──────────────────────────────────────────────────────
@@ -387,7 +433,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     ySel.innerHTML = opts;
     xSel.value  = String(plot.xParam);
     ySel.value  = String(plot.yParam);
-    scaleSel.value = plot.scale;
+    xScaleSel.value = plot.xScale;
+    yScaleSel.value = plot.yScale;
     modeSel.value  = plot.mode;
 
     if (isCompMode) refreshCompSlidersUI();
@@ -431,10 +478,10 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     const axisRanges = computeAxisRanges({ plot, raw, n, comp });
     lastGeom = { plotArea, axisRanges, scaleParams };
 
-    const xMinT = transformValue(plot.scale, axisRanges.xMin, scaleParams);
-    const xMaxT = transformValue(plot.scale, axisRanges.xMax, scaleParams);
-    const yMinT = transformValue(plot.scale, axisRanges.yMin, scaleParams);
-    const yMaxT = transformValue(plot.scale, axisRanges.yMax, scaleParams);
+    const xMinT = transformValue(plot.xScale, axisRanges.xMin, scaleParams);
+    const xMaxT = transformValue(plot.xScale, axisRanges.xMax, scaleParams);
+    const yMinT = transformValue(plot.yScale, axisRanges.yMin, scaleParams);
+    const yMaxT = transformValue(plot.yScale, axisRanges.yMax, scaleParams);
 
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = theme.plotCanvasBg;
@@ -447,7 +494,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     // ── 軸目盛り ──────────────────────────────────────────────────
     const xLabel = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
     const yLabel = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
-    drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme, xLabel, yLabel, LEFT_MARGIN);
+    drawAxisTicks(ctx, plotArea, axisRanges, plot.xScale, plot.yScale, scaleParams, dpi, theme, xLabel, yLabel, LEFT_MARGIN);
 
     const selectedGate = getGateById(state, state.selectedGateId);
     const gateChain = selectedGate
@@ -463,7 +510,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
         state.fullApply.appliedRevision === state.compRevision;
 
       if (canUseFull) {
-        const key = `${plot.xParam}-${plot.yParam}-${plot.scale}-${axisRanges.xMin}-${axisRanges.xMax}-${axisRanges.yMin}-${axisRanges.yMax}-${gateChain.map((g) => g.id).join(",")}`;
+        const key = `${plot.xParam}-${plot.yParam}-${plot.xScale}-${plot.yScale}-${axisRanges.xMin}-${axisRanges.xMax}-${axisRanges.yMin}-${axisRanges.yMax}-${gateChain.map((g) => g.id).join(",")}`;
         const cached  = state.density.cacheByPlotId.get(plot.id);
         const pending = state.density.pendingByPlotId.get(plot.id);
 
@@ -490,7 +537,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
             state.density.pendingByPlotId.set(plot.id, { requestId, key });
             state.fullWorker.postMessage({
               type: "density", requestId, plotId: plot.id, key,
-              xParam: plot.xParam, yParam: plot.yParam, scale: plot.scale,
+              xParam: plot.xParam, yParam: plot.yParam, xScale: plot.xScale, yScale: plot.yScale, scale: plot.xScale,
               axisRanges, scaleParams, gates: gateDefs,
               binsW: densityCanvas.width, binsH: densityCanvas.height,
             });
@@ -510,8 +557,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
           if (comp && !comp.gatePasses(k, raw, gateDefs)) continue;
           const xv = comp ? comp.applyPreviewValue(plot.xParam, k, raw) : raw[plot.xParam][k];
           const yv = comp ? comp.applyPreviewValue(plot.yParam, k, raw) : raw[plot.yParam][k];
-          const xt = transformValue(plot.scale, xv, scaleParams);
-          const yt = transformValue(plot.scale, yv, scaleParams);
+          const xt = transformValue(plot.xScale, xv, scaleParams);
+          const yt = transformValue(plot.yScale, yv, scaleParams);
           const nx = (xt - xMinT) / (xMaxT - xMinT);
           const ny = (yt - yMinT) / (yMaxT - yMinT);
           if (!Number.isFinite(nx) || !Number.isFinite(ny)) continue;
@@ -544,8 +591,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
         if (comp && !comp.gatePasses(k, raw, gateDefs)) continue;
         const xv = comp ? comp.applyPreviewValue(plot.xParam, k, raw) : raw[plot.xParam][k];
         const yv = comp ? comp.applyPreviewValue(plot.yParam, k, raw) : raw[plot.yParam][k];
-        const xt = transformValue(plot.scale, xv, scaleParams);
-        const yt = transformValue(plot.scale, yv, scaleParams);
+        const xt = transformValue(plot.xScale, xv, scaleParams);
+        const yt = transformValue(plot.yScale, yv, scaleParams);
         const px = plotArea.left + ((xt - xMinT) / (xMaxT - xMinT)) * plotArea.width;
         const py = plotArea.top + (1 - (yt - yMinT) / (yMaxT - yMinT)) * plotArea.height;
         if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
@@ -559,6 +606,11 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     // Density colorbar (density mode only)
     if (plot.mode === "density") {
       drawDensityColorbar(ctx, plotArea, dpi, theme);
+    }
+
+    // Range drag markers (triangle handles at axis edges)
+    if (!isCompMode) {
+      drawRangeMarkers(ctx, plotArea, dpi, theme);
     }
 
     // Gate overlays
@@ -657,6 +709,73 @@ function clearCanvas(canvas) {
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
+// ── Range drag markers ───────────────────────────────────────────
+/**
+ * Draw small triangle handles at the 4 axis edges.
+ * X-min: ▶ at left edge of X-axis margin (bottom)
+ * X-max: ◀ at right edge of X-axis margin (bottom)
+ * Y-min: △ at bottom of Y-axis margin (left)
+ * Y-max: ▽ at top of Y-axis margin (left)
+ * Dragging a marker updates plot.xMin/xMax/yMin/yMax.
+ */
+function drawRangeMarkers(ctx, plotArea, dpi, theme) {
+  const right  = plotArea.left + plotArea.width;
+  const bottom = plotArea.top  + plotArea.height;
+  const S = 6 * dpi; // triangle half-size
+  const G = 4 * dpi; // gap from plot edge
+
+  ctx.save();
+  ctx.fillStyle   = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.strokeStyle = theme.plotCanvasBg ?? "#fff";
+  ctx.lineWidth   = Math.max(1, dpi * 0.8);
+  ctx.globalAlpha = 0.75;
+
+  function tri(points) {
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    ctx.lineTo(points[1][0], points[1][1]);
+    ctx.lineTo(points[2][0], points[2][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  const yM = bottom + G + S; // Y center of X-axis markers
+  // Xmin ▶ (pointing right = "push boundary inward from left")
+  tri([[plotArea.left - S, yM - S], [plotArea.left - S, yM + S], [plotArea.left + S, yM]]);
+  // Xmax ◀ (pointing left = "push boundary inward from right")
+  tri([[right + S, yM - S], [right + S, yM + S], [right - S, yM]]);
+
+  const xM = plotArea.left - G - S; // X center of Y-axis markers
+  // Ymax ▲ (pointing up = "can extend upward")
+  tri([[xM, plotArea.top - S], [xM - S, plotArea.top + S], [xM + S, plotArea.top + S]]);
+  // Ymin ▼ (pointing down = "can extend downward")
+  tri([[xM, bottom + S], [xM - S, bottom - S], [xM + S, bottom - S]]);
+
+  ctx.restore();
+}
+
+/** Returns { axis:"x"|"y", which:"min"|"max" } if pt is near a range marker, else null */
+function hitRangeMarker(pt, plotArea, dpi) {
+  const right  = plotArea.left + plotArea.width;
+  const bottom = plotArea.top  + plotArea.height;
+  const S = 6 * dpi;
+  const G = 4 * dpi;
+  const HIT = 12 * dpi;
+
+  const yMx = bottom + G + S;
+  if (Math.abs(pt.y - yMx) < HIT) {
+    if (Math.abs(pt.x - plotArea.left) < HIT) return { axis: "x", which: "min" };
+    if (Math.abs(pt.x - right)         < HIT) return { axis: "x", which: "max" };
+  }
+  const xMy = plotArea.left - G - S;
+  if (Math.abs(pt.x - xMy) < HIT) {
+    if (Math.abs(pt.y - plotArea.top) < HIT) return { axis: "y", which: "max" };
+    if (Math.abs(pt.y - bottom)       < HIT) return { axis: "y", which: "min" };
+  }
+  return null;
+}
+
 // ── Density colorbar ─────────────────────────────────────────────
 function drawDensityColorbar(ctx, plotArea, dpi, theme) {
   const cbW = 10 * dpi;
@@ -700,12 +819,12 @@ function drawDensityColorbar(ctx, plotArea, dpi, theme) {
 }
 
 // ── 軸目盛り描画 ──────────────────────────────────────────────────
-function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme, xLabel, yLabel, leftMarginPx = 45) {
+function drawAxisTicks(ctx, plotArea, axisRanges, xScale, yScale, scaleParams, dpi, theme, xLabel, yLabel, leftMarginPx = 45) {
   const { xMin, xMax, yMin, yMax } = axisRanges;
-  const xMinT = transformValue(scale, xMin, scaleParams);
-  const xMaxT = transformValue(scale, xMax, scaleParams);
-  const yMinT = transformValue(scale, yMin, scaleParams);
-  const yMaxT = transformValue(scale, yMax, scaleParams);
+  const xMinT = transformValue(xScale, xMin, scaleParams);
+  const xMaxT = transformValue(xScale, xMax, scaleParams);
+  const yMinT = transformValue(yScale, yMin, scaleParams);
+  const yMaxT = transformValue(yScale, yMax, scaleParams);
   const denomX = xMaxT - xMinT || 1;
   const denomY = yMaxT - yMinT || 1;
   const right  = plotArea.left + plotArea.width;
@@ -721,9 +840,9 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
   // X-axis ticks: label & tick mark BELOW the plot box
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  const xTicks = computeTicks(xMin, xMax, scale, 4);
+  const xTicks = computeTicks(xMin, xMax, xScale, 4);
   for (const v of xTicks) {
-    const t  = transformValue(scale, v, scaleParams);
+    const t  = transformValue(xScale, v, scaleParams);
     const nx = (t - xMinT) / denomX;
     if (nx < 0.02 || nx > 0.98) continue;
     const px = plotArea.left + nx * plotArea.width;
@@ -739,9 +858,9 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
   // Y-axis ticks: label & tick mark LEFT of the plot box
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
-  const yTicks = computeTicks(yMin, yMax, scale, 4);
+  const yTicks = computeTicks(yMin, yMax, yScale, 4);
   for (const v of yTicks) {
-    const t  = transformValue(scale, v, scaleParams);
+    const t  = transformValue(yScale, v, scaleParams);
     const ny = (t - yMinT) / denomY;
     if (ny < 0.03 || ny > 0.97) continue;
     const py = plotArea.top + (1 - ny) * plotArea.height;
@@ -825,13 +944,25 @@ function linearTicks(min, max, n) {
   return ticks;
 }
 
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+function toSup(n) {
+  return String(n).split("").map(c => (c === "-" ? "⁻" : SUPERSCRIPT[c]) ?? c).join("");
+}
 function fmtTick(v) {
   if (v === 0) return "0";
   const abs = Math.abs(v);
-  if (abs >= 1e5) return (v / 1000).toFixed(0) + "k";
-  if (abs >= 1e4) return (v / 1000).toFixed(1) + "k";
+  const sign = v < 0 ? "−" : "";
+  // Powers of 10: show as 10ⁿ
+  if (abs >= 100) {
+    const exp = Math.log10(abs);
+    if (Math.abs(exp - Math.round(exp)) < 0.01) {
+      return `${sign}10${toSup(Math.round(exp))}`;
+    }
+  }
+  if (abs >= 1e4) return sign + (abs / 1000).toFixed(0) + "k";
+  if (abs >= 1000) return sign + (abs / 1000).toFixed(1) + "k";
   if (abs >= 100) return String(Math.round(v));
-  if (abs >= 1) return String(Math.round(v * 10) / 10);
+  if (abs >= 1)   return String(Math.round(v * 10) / 10);
   if (abs >= 0.1) return v.toPrecision(1);
   return v.toExponential(0);
 }

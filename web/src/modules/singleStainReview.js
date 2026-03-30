@@ -40,6 +40,10 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
   grid.className = "single-stain-grid";
   container.appendChild(grid);
 
+  // Registry: all card redraw functions share access to the global getCoeff
+  // so that when one slider moves the entire panel reflects current comp state.
+  const redrawAll = [];
+
   for (const xRef of xRefs) {
     const xSample = sample.referenceToSample.get(xRef);
     const xLabel = sample.referenceParams[xRef]?.label ?? `#${xRef + 1}`;
@@ -117,14 +121,35 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     yCompSlider.addEventListener("click", (e) => e.stopPropagation());
     xCompSlider.addEventListener("click", (e) => e.stopPropagation());
 
+    // 全カード一斉再描画: getCoeff から現在の係数を読み直して描画する
+    // drawSingleStainPlot(canvas, sample, xIndex, yIndex, coeff=yRef→xRef, coeffXtoY=xRef→yRef)
+    function makeRedraw(cv, smp, xr, yr, xs, ys, xl, yl, xsl, ysl, xsv, ysv, ftEl) {
+      return function redrawCard() {
+        const cx = Number(getCoeff?.(yr, xr) ?? 0); // yRef→xRef (X slider value)
+        const cy = Number(getCoeff?.(xr, yr) ?? 0); // xRef→yRef (Y slider value)
+        // スライダー表示を最新の係数に同期
+        xsl.value = String(Math.max(Number(xsl.min), Math.min(Number(xsl.max), cx)));
+        ysl.value = String(Math.max(Number(ysl.min), Math.min(Number(ysl.max), cy)));
+        xsv.textContent = cx.toFixed(3);
+        ysv.textContent = cy.toFixed(3);
+        ftEl.textContent = `coeff: ${cx.toFixed(3)}`;
+        drawSingleStainPlot(cv, smp, xs, ys, cx, cy, xl, yl);
+      };
+    }
+    const redrawThisCard = makeRedraw(
+      canvas, sample, xRef, yRef, xSample, ySample, xLabel, yLabel,
+      xCompSlider, yCompSlider, xSliderVal, ySliderVal, footer,
+    );
+    redrawAll.push(redrawThisCard);
+
     // Y スライダー: xRef→yRef (キャンバスをリアルタイム更新)
-    // applyComp で state を更新してから canvas を再描画することで順序を保証
     yCompSlider.addEventListener("input", (e) => {
       e.stopPropagation();
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
       applyComp?.(xRef, yRef, v);
-      drawSingleStainPlot(canvas, sample, xSample, ySample, Number(xCompSlider.value), v, xLabel, yLabel);
+      // 全カードを再描画 (他チャンネルへのスピルオーバーが連動して見えるように)
+      for (const fn of redrawAll) fn();
     });
 
     // X スライダー: yRef→xRef (キャンバスをリアルタイム更新)
@@ -134,7 +159,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
       applyComp?.(yRef, xRef, v);
-      drawSingleStainPlot(canvas, sample, xSample, ySample, v, Number(yCompSlider.value), xLabel, yLabel);
+      for (const fn of redrawAll) fn();
     });
 
     card.append(plotBody, ssXCtrlRow, footer);
@@ -359,11 +384,22 @@ function computeSSTicks(min, max, n) {
   return ticks;
 }
 
+const SS_SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+function toSSSup(n) {
+  return String(n).split("").map(c => (c === "-" ? "⁻" : SS_SUP[c]) ?? c).join("");
+}
 function fmtSSTick(v) {
   if (v === 0) return "0";
   const abs = Math.abs(v);
-  if (abs >= 1e5) return (v / 1000).toFixed(0) + "k";
-  if (abs >= 1e4) return (v / 1000).toFixed(1) + "k";
+  const sign = v < 0 ? "−" : "";
+  if (abs >= 100) {
+    const exp = Math.log10(abs);
+    if (Math.abs(exp - Math.round(exp)) < 0.01) {
+      return `${sign}10${toSSSup(Math.round(exp))}`;
+    }
+  }
+  if (abs >= 1e4) return sign + (abs / 1000).toFixed(0) + "k";
+  if (abs >= 1000) return sign + (abs / 1000).toFixed(1) + "k";
   if (abs >= 100) return String(Math.round(v));
   if (abs >= 1)   return String(Math.round(v * 10) / 10);
   if (abs >= 0.1) return v.toPrecision(1);

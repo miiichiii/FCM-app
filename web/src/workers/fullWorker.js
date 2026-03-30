@@ -179,18 +179,19 @@ function computeDensity(fullData, msg) {
 
   const xParam = Number(msg.xParam ?? 0);
   const yParam = Number(msg.yParam ?? 1);
-  const scale = String(msg.scale ?? "linear");
+  const xScale = String(msg.xScale ?? msg.scale ?? "linear");
+  const yScale = String(msg.yScale ?? msg.scale ?? "linear");
   const axisRanges = msg.axisRanges ?? {};
   const scaleParams = msg.scaleParams ?? {};
 
-  const binsW = Math.max(8, Math.min(512, Number(msg.binsW ?? 128)));
-  const binsH = Math.max(8, Math.min(512, Number(msg.binsH ?? 128)));
+  const binsW = Math.max(8, Math.min(512, Number(msg.binsW ?? 256)));
+  const binsH = Math.max(8, Math.min(512, Number(msg.binsH ?? 256)));
   const counts = new Uint32Array(binsW * binsH);
 
-  const xMinT = transformValue(scale, axisRanges.xMin ?? 0, scaleParams);
-  const xMaxT = transformValue(scale, axisRanges.xMax ?? 1, scaleParams);
-  const yMinT = transformValue(scale, axisRanges.yMin ?? 0, scaleParams);
-  const yMaxT = transformValue(scale, axisRanges.yMax ?? 1, scaleParams);
+  const xMinT = transformValue(xScale, axisRanges.xMin ?? 0, scaleParams);
+  const xMaxT = transformValue(xScale, axisRanges.xMax ?? 1, scaleParams);
+  const yMinT = transformValue(yScale, axisRanges.yMin ?? 0, scaleParams);
+  const yMaxT = transformValue(yScale, axisRanges.yMax ?? 1, scaleParams);
 
   const denomX = xMaxT - xMinT || 1;
   const denomY = yMaxT - yMinT || 1;
@@ -216,8 +217,8 @@ function computeDensity(fullData, msg) {
 
     const xv = channels[xParam]?.[e];
     const yv = channels[yParam]?.[e];
-    const xt = transformValue(scale, xv, scaleParams);
-    const yt = transformValue(scale, yv, scaleParams);
+    const xt = transformValue(xScale, xv, scaleParams);
+    const yt = transformValue(yScale, yv, scaleParams);
     const nx = (xt - xMinT) / denomX;
     const ny = (yt - yMinT) / denomY;
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) continue;
