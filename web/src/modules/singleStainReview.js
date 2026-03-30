@@ -271,7 +271,7 @@ function drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLab
   for (const v of xTicks) {
     const t  = transformValue("logicle", v, SCALE_PARAMS);
     const nx = (t - xMinT) / denomX;
-    if (nx < 0.02 || nx > 0.98) continue;
+    if (nx < 0.005 || nx > 0.995) continue;
     const px = plotArea.left + nx * plotArea.width;
     ctx.beginPath();
     ctx.moveTo(px, bottom);
@@ -288,7 +288,7 @@ function drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLab
   for (const v of yTicks) {
     const t  = transformValue("logicle", v, SCALE_PARAMS);
     const ny = (t - yMinT) / denomY;
-    if (ny < 0.03 || ny > 0.97) continue;
+    if (ny < 0.005 || ny > 0.995) continue;
     const py = plotArea.top + (1 - ny) * plotArea.height;
     ctx.beginPath();
     ctx.moveTo(plotArea.left, py);
@@ -328,21 +328,21 @@ function drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLab
 
 function computeSSTicks(min, max, n) {
   if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return [];
-  // logicle: use 0 + powers of 10
+  // Symlog: generate all decade ticks within range (no hard cap).
   const ticks = [];
   if (min < 0) {
-    const startExp = Math.floor(Math.log10(-min));
+    const startExp = Math.floor(Math.log10(Math.max(1, -min)));
     for (let e = startExp; e >= 0; e--) {
       const v = -Math.pow(10, e);
-      if (v >= min * 1.01) ticks.push(v);
+      if (v >= min) ticks.push(v);
     }
   }
   if (min <= 0 && 0 <= max) ticks.push(0);
-  const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
-  const posEnd   = Math.ceil(Math.log10(Math.max(1, max)));
-  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+  const posStartExp = min > 0 ? Math.floor(Math.log10(Math.max(1, min))) : 0;
+  const posEndExp   = Math.ceil(Math.log10(Math.max(1, max)));
+  for (let e = posStartExp; e <= posEndExp; e++) {
     const v = Math.pow(10, e);
-    if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
+    if (v <= max * 1.01) ticks.push(v);
   }
   if (ticks.length < 2) {
     const range = max - min;

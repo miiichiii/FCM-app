@@ -25,7 +25,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const scaleSel = document.createElement("select");
   scaleSel.innerHTML = `
     <option value="linear">Linear</option>
-    <option value="logicle">Logicle</option>
+    <option value="logicle">Symlog</option>
     <option value="arcsinh">Arcsinh</option>
   `;
   const modeSel = document.createElement("select");
@@ -108,8 +108,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
 
   // PNG 保存ボタン（300 DPI 相当の高解像度出力）
   savePngBtn.addEventListener("click", () => {
-    const xName = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
-    const yName = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
+    const xName = state.dataset?.params?.[plot.xParam]?.label ?? state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
+    const yName = state.dataset?.params?.[plot.yParam]?.label ?? state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
     // Export the native canvas pixel buffer (already scaled by devicePixelRatio,
     // giving 2x–3x resolution on HiDPI displays — sufficient for print quality).
     const link = document.createElement("a");
@@ -365,7 +365,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   ro.observe(canvasWrap);
 
   const densityCanvas = document.createElement("canvas");
-  densityCanvas.width = 128; densityCanvas.height = 128;
+  densityCanvas.width = 256; densityCanvas.height = 256;
   const densityCtx = densityCanvas.getContext("2d");
 
   // ── render ──────────────────────────────────────────────────────
@@ -445,8 +445,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
     // ── 軸目盛り ──────────────────────────────────────────────────
-    const xLabel = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
-    const yLabel = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
+    const xLabel = state.dataset?.params?.[plot.xParam]?.label ?? state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
+    const yLabel = state.dataset?.params?.[plot.yParam]?.label ?? state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
     drawAxisTicks(ctx, plotArea, axisRanges, plot.scale, scaleParams, dpi, theme, xLabel, yLabel, LEFT_MARGIN);
 
     const selectedGate = getGateById(state, state.selectedGateId);
@@ -725,7 +725,7 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
   for (const v of xTicks) {
     const t  = transformValue(scale, v, scaleParams);
     const nx = (t - xMinT) / denomX;
-    if (nx < 0.02 || nx > 0.98) continue;
+    if (nx < 0.005 || nx > 0.995) continue;
     const px = plotArea.left + nx * plotArea.width;
     // tick mark extending downward from bottom edge
     ctx.beginPath();
@@ -743,7 +743,7 @@ function drawAxisTicks(ctx, plotArea, axisRanges, scale, scaleParams, dpi, theme
   for (const v of yTicks) {
     const t  = transformValue(scale, v, scaleParams);
     const ny = (t - yMinT) / denomY;
-    if (ny < 0.03 || ny > 0.97) continue;
+    if (ny < 0.005 || ny > 0.995) continue;
     const py = plotArea.top + (1 - ny) * plotArea.height;
     // tick mark extending leftward from left edge
     ctx.beginPath();
@@ -789,21 +789,24 @@ function computeTicks(min, max, scale, n) {
   if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return [];
   if (scale === "linear") return linearTicks(min, max, n);
 
-  // logicle / arcsinh: use 0 + powers of 10
+  // Symlog / arcsinh: generate all decade ticks within range (no hard cap).
+  // Always include the top decade so fluorescence populations at 10³–10⁴ have
+  // a reference tick even when data starts near zero or at a high positive value.
   const ticks = [];
   if (min < 0) {
-    const startExp = Math.floor(Math.log10(-min));
+    const startExp = Math.floor(Math.log10(Math.max(1, -min)));
     for (let e = startExp; e >= 0; e--) {
       const v = -Math.pow(10, e);
-      if (v >= min * 1.01) ticks.push(v);
+      if (v >= min) ticks.push(v);
     }
   }
   if (min <= 0 && 0 <= max) ticks.push(0);
-  const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
-  const posEnd = Math.ceil(Math.log10(Math.max(1, max)));
-  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+  // Positive side: always go up to the decade AT OR BELOW max
+  const posStartExp = min > 0 ? Math.floor(Math.log10(Math.max(1, min))) : 0;
+  const posEndExp   = Math.ceil(Math.log10(Math.max(1, max)));
+  for (let e = posStartExp; e <= posEndExp; e++) {
     const v = Math.pow(10, e);
-    if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
+    if (v <= max * 1.01) ticks.push(v);
   }
   if (ticks.length < 2) return linearTicks(min, max, n);
   return ticks;
