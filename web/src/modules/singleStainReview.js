@@ -287,7 +287,7 @@ function drawSSAxisTicks(ctx, plotArea, xRange, yRange, dpr, theme, xLabel, yLab
   ctx.strokeStyle = theme.plotText ?? "rgba(66,53,39,0.75)";
   ctx.globalAlpha = 0.85;
   const fs = Math.max(7, Math.round(8 * dpr));
-  ctx.font = `${fs}px ui-monospace,monospace`;
+  ctx.font = `${fs}px sans-serif`;
 
   // X-axis ticks
   ctx.textAlign    = "center";
@@ -365,7 +365,7 @@ function computeSSTicks(min, max, n) {
   if (min <= 0 && 0 <= max) ticks.push(0);
   const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
   const posEnd   = Math.ceil(Math.log10(Math.max(1, max)));
-  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+  for (let e = posStart; e <= posEnd; e++) {
     const v = Math.pow(10, e);
     if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
   }
