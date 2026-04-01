@@ -147,8 +147,8 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       e.stopPropagation();
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
-      applyComp?.(xRef, yRef, v);
-      // 全カードを再描画 (他チャンネルへのスピルオーバーが連動して見えるように)
+      try { applyComp?.(xRef, yRef, v); } catch(_) {}
+      // 全カードを再描画 (comp行列が更新されたので全パネルに反映)
       for (const fn of redrawAll) fn();
     });
 
@@ -158,7 +158,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       const v = Number(xCompSlider.value);
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
-      applyComp?.(yRef, xRef, v);
+      try { applyComp?.(yRef, xRef, v); } catch(_) {}
       for (const fn of redrawAll) fn();
     });
 

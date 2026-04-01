@@ -910,6 +910,37 @@ input[type="range"] {
   font-size: 11px !important;
 }
 
+/* Max 直接入力ボックス */
+.axis-max-input {
+  width: 70px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--input-bg, var(--card));
+  color: var(--text);
+  flex-shrink: 0;
+  /* Chrome の数値スピナーを非表示 */
+  -moz-appearance: textfield;
+}
+.axis-max-input::-webkit-outer-spin-button,
+.axis-max-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.axis-max-input:focus {
+  outline: 1px solid var(--accent-ring, var(--accent));
+}
+
+/* Max ラベル ("X:" / "Y:") */
+.axis-max-label {
+  font-size: 11px;
+  opacity: 0.65;
+  flex-shrink: 0;
+  margin-left: 4px;
+  user-select: none;
+}
+
 /* ⚡ Comp ボタン active 状態 */
 .btn.active {
   background: var(--accent-soft);
