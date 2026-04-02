@@ -1,6 +1,9 @@
-function idx(n, from, to) {
-  return to * n + from;
-}
+import {
+  applyTransformValue,
+  buildCompensationTransform,
+  buildTransformRows,
+  idx,
+} from "./compMath.js";
 
 function clampCoeff(v) {
   if (!Number.isFinite(v)) return 0;
@@ -22,7 +25,10 @@ export function createCompModel(nParams, initialCoeffs /* Float32Array n*n (to,f
   }
 
   const nonZeroByTo = Array.from({ length: n }, () => []);
+  let transform = new Float64Array(n * n);
+  let transformRows = Array.from({ length: n }, () => []);
   rebuildNonZero();
+  rebuildTransform();
 
   const model = {
     n,
@@ -31,28 +37,28 @@ export function createCompModel(nParams, initialCoeffs /* Float32Array n*n (to,f
     selectedFrom: 0,
     selectedTo: Math.min(1, n - 1),
     dirty: false,
+    lastError: "",
 
     rebuildNonZero,
+    rebuildTransform,
     getCoeff(from, to) {
       if (from === to) return 0;
       return coeffs[idx(n, from, to)];
     },
     setCoeff(from, to, v) {
-      if (from === to) return;
-      coeffs[idx(n, from, to)] = clampCoeff(v);
-      model.dirty = !equalsArray(coeffs, original);
-      rebuildNonZero();
+      if (from === to) return { ok: true };
+      const next = new Float32Array(coeffs);
+      next[idx(n, from, to)] = clampCoeff(v);
+      return commitCoeffState(next, { keepOriginal: true });
     },
     resetPair(from, to) {
-      if (from === to) return;
-      coeffs[idx(n, from, to)] = original[idx(n, from, to)];
-      model.dirty = !equalsArray(coeffs, original);
-      rebuildNonZero();
+      if (from === to) return { ok: true };
+      const next = new Float32Array(coeffs);
+      next[idx(n, from, to)] = original[idx(n, from, to)];
+      return commitCoeffState(next, { keepOriginal: true });
     },
     resetAll() {
-      coeffs.set(original);
-      model.dirty = false;
-      rebuildNonZero();
+      return commitCoeffState(original, { keepOriginal: true });
     },
     toJson() {
       return {
@@ -65,17 +71,14 @@ export function createCompModel(nParams, initialCoeffs /* Float32Array n*n (to,f
       if (!obj || obj.version !== 1) throw new Error("Unsupported comp JSON (expected version=1)");
       if (obj.nParams !== n) throw new Error(`Comp JSON param mismatch (expected ${n}, got ${obj.nParams})`);
       if (!Array.isArray(obj.coeffs) || obj.coeffs.length !== n * n) throw new Error("Invalid coeffs length");
-      coeffs.set(obj.coeffs.map(clampCoeff));
-      for (let i = 0; i < n; i++) coeffs[idx(n, i, i)] = 0;
-      original.set(coeffs);
-      model.dirty = false;
-      rebuildNonZero();
+      const next = new Float32Array(obj.coeffs.map(clampCoeff));
+      for (let i = 0; i < n; i++) next[idx(n, i, i)] = 0;
+      const result = commitCoeffState(next, { keepOriginal: false });
+      if (!result.ok) throw result.error;
     },
     // Apply to preview sample: rawPreviewChannels[param][k]
     applyPreviewValue(toParam, k, rawPreviewChannels) {
-      let v = rawPreviewChannels[toParam][k];
-      for (const p of nonZeroByTo[toParam]) v -= p.coeff * rawPreviewChannels[p.from][k];
-      return v;
+      return applyTransformValue(transformRows, toParam, rawPreviewChannels, k);
     },
     gatePasses(k, rawPreviewChannels, gateDefs) {
       if (!gateDefs || gateDefs.length === 0) return true;
@@ -99,6 +102,9 @@ export function createCompModel(nParams, initialCoeffs /* Float32Array n*n (to,f
       pairs.sort((a, b) => Math.abs(b.coeff) - Math.abs(a.coeff));
       return pairs;
     },
+    getTransform() {
+      return transform;
+    },
   };
 
   return model;
@@ -113,6 +119,42 @@ export function createCompModel(nParams, initialCoeffs /* Float32Array n*n (to,f
       }
     }
   }
+
+  function rebuildTransform() {
+    transform = buildCompensationTransform(n, coeffs);
+    transformRows = buildTransformRows(transform, n);
+  }
+
+  function commitCoeffState(nextCoeffs, { keepOriginal }) {
+    try {
+      const validated = new Float32Array(nextCoeffs);
+      for (let i = 0; i < n; i++) validated[idx(n, i, i)] = 0;
+
+      const nextTransform = buildCompensationTransform(n, validated);
+      const nextRows = buildTransformRows(nextTransform, n);
+
+      coeffs.set(validated);
+      transform = nextTransform;
+      transformRows = nextRows;
+      rebuildNonZero();
+
+      if (keepOriginal) {
+        model.dirty = !equalsArray(coeffs, original);
+      } else {
+        original.set(validated);
+        model.dirty = false;
+      }
+
+      model.lastError = "";
+      return { ok: true };
+    } catch (error) {
+      model.lastError = String(error?.message ?? error);
+      return {
+        ok: false,
+        error: error instanceof Error ? error : new Error(model.lastError),
+      };
+    }
+  }
 }
 
 function equalsArray(a, b) {
@@ -120,4 +162,3 @@ function equalsArray(a, b) {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
-

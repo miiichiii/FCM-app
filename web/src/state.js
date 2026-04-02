@@ -26,6 +26,12 @@ export function createDefaultState() {
       pendingByPlotId: new Map(), // plotId -> { requestId, key }
       nextRequestId: 1,
     },
+    gateStats: {
+      status: "idle", // idle | running | ready | error | stale
+      rows: [],
+      requestId: 0,
+      error: null,
+    },
     singleStain: {
       samples: [],
       activeSampleId: null,
@@ -41,6 +47,10 @@ export function setDataset(state, dataset) {
   state.selectedGateId = "root";
   state.nextGateId = 1;
   state.gatingArmed = false;
+  state.gateStats.status = "idle";
+  state.gateStats.rows = [];
+  state.gateStats.requestId = 0;
+  state.gateStats.error = null;
   state.singleStain.compParamIndices = [];
 }
 

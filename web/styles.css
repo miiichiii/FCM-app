@@ -1094,3 +1094,30 @@ canvas {
 
 .ss-empty-hint { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
 .ss-empty-hint p:first-child { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+
+.gate-stats-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.gate-stats-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(72px, 0.8fr));
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.gate-stats-row.header {
+  font-weight: 700;
+  background: var(--panel);
+}
+
+.gate-stats-cell.mono {
+  text-align: right;
+}

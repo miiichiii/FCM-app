@@ -108,7 +108,7 @@ export function mapReferenceParamsToSample(referenceParams, sampleParams) {
   return map;
 }
 
-export function createSingleStainRecord(fileName, parsed, referenceParams) {
+export function createSingleStainRecord(fileName, parsed, referenceParams, meta = {}) {
   const effectiveParams = referenceParams?.length ? referenceParams : parsed.params;
   const compParamIndices = getCompRelevantParamIndices(effectiveParams);
   const inferred = inferStainedChannelFromFileName(fileName, effectiveParams, compParamIndices);
@@ -117,6 +117,7 @@ export function createSingleStainRecord(fileName, parsed, referenceParams) {
   return {
     id: makeRecordId(fileName),
     fileName,
+    sha256: meta.sha256 ?? "",
     parsed,
     compParamIndices,
     referenceParams: effectiveParams,

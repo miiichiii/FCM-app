@@ -22,7 +22,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const header = document.createElement("div");
   header.className = "plot-header";
 
-  const SCALE_OPTS = `<option value="linear">Linear</option><option value="logicle">Logicle</option><option value="arcsinh">Arcsinh</option>`;
+  const SCALE_OPTS = `<option value="linear">Linear</option><option value="logicle">Symlog (approx)</option><option value="arcsinh">Arcsinh</option>`;
   const xScaleSel = document.createElement("select");
   xScaleSel.innerHTML = SCALE_OPTS;
   const yScaleSel = document.createElement("select");
