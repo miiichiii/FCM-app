@@ -43,6 +43,21 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
   // Registry: all card redraw functions share access to the global getCoeff
   // so that when one slider moves the entire panel reflects current comp state.
   const redrawAll = [];
+  let pendingApply = null;
+  let applyFrame = 0;
+
+  function scheduleCompUpdate(fromRef, toRef, value) {
+    pendingApply = { fromRef, toRef, value };
+    if (applyFrame) return;
+    applyFrame = requestAnimationFrame(() => {
+      applyFrame = 0;
+      const next = pendingApply;
+      pendingApply = null;
+      if (!next) return;
+      try { applyComp?.(next.fromRef, next.toRef, next.value); } catch (_) {}
+      for (const fn of redrawAll) fn();
+    });
+  }
 
   for (const xRef of xRefs) {
     const xSample = sample.referenceToSample.get(xRef);
@@ -147,9 +162,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       e.stopPropagation();
       const v = Number(yCompSlider.value);
       ySliderVal.textContent = v.toFixed(3);
-      try { applyComp?.(xRef, yRef, v); } catch(_) {}
-      // 全カードを再描画 (comp行列が更新されたので全パネルに反映)
-      for (const fn of redrawAll) fn();
+      scheduleCompUpdate(xRef, yRef, v);
     });
 
     // X スライダー: yRef→xRef (キャンバスをリアルタイム更新)
@@ -158,8 +171,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
       const v = Number(xCompSlider.value);
       xSliderVal.textContent = v.toFixed(3);
       footer.textContent = `coeff: ${v.toFixed(3)}`;
-      try { applyComp?.(yRef, xRef, v); } catch(_) {}
-      for (const fn of redrawAll) fn();
+      scheduleCompUpdate(yRef, xRef, v);
     });
 
     card.append(plotBody, ssXCtrlRow, footer);
@@ -414,4 +426,3 @@ function fmtSSTick(v) {
   if (abs >= 0.1) return v.toPrecision(1);
   return v.toExponential(0);
 }
-
