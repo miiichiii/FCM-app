@@ -1,6 +1,6 @@
 import { transformValue } from "./transforms.js";
 import { getThemeColors } from "./theme.js";
-import { getCompSliderConfig } from "./compUi.js";
+import { COMP_INPUT_STEP, getCompSliderConfig } from "./compUi.js";
 
 const SCALE_PARAMS = {
   arcsinhCofactor: 150,
@@ -81,7 +81,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     yCompSlider.className = "ss-y-comp-slider";
     yCompSlider.min = String(cfgXtoY.min);
     yCompSlider.max = String(cfgXtoY.max);
-    yCompSlider.step = String(cfgXtoY.step);
+    yCompSlider.step = String(COMP_INPUT_STEP);
     yCompSlider.value = String(Math.max(cfgXtoY.min, Math.min(cfgXtoY.max, coeffXtoY)));
 
     const ySliderVal = document.createElement("div");
@@ -110,7 +110,7 @@ export function renderSingleStainReview({ container, sample, currentPair, getCoe
     xCompSlider.className = "ss-x-comp-slider";
     xCompSlider.min = String(cfgYtoX.min);
     xCompSlider.max = String(cfgYtoX.max);
-    xCompSlider.step = String(cfgYtoX.step);
+    xCompSlider.step = String(COMP_INPUT_STEP);
     xCompSlider.value = String(Math.max(cfgYtoX.min, Math.min(cfgYtoX.max, coeffYtoX)));
 
     const xSliderVal = document.createElement("div");
