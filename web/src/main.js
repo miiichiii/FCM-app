@@ -15,6 +15,8 @@ import { renderSingleStainReview } from "./modules/singleStainReview.js";
 import { initTheme, toggleTheme, getCurrentTheme } from "./modules/theme.js";
 import { COMP_INPUT_STEP, COMP_NUDGE_STEP, clampCompSliderValue, getCompSliderConfig, parseCompInput } from "./modules/compUi.js";
 import { loadCompSnapshotFromStorage, saveCompSnapshotToStorage } from "./modules/compStore.js";
+import { applyAnalysisSession, createAnalysisSession } from "./modules/session.js";
+import { gateStatsToCsv } from "./modules/gateStats.js";
 
 globalThis.__FCM_APP_BOOTED = true;
 
@@ -28,6 +30,12 @@ function debounce(fn, wait) {
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => { timer = null; fn.apply(this, args); }, wait);
   };
+}
+
+async function sha256Hex(buffer) {
+  if (!globalThis.crypto?.subtle) return "";
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 const state = createDefaultState();
@@ -51,6 +59,13 @@ const themeToggleBtn = document.getElementById("themeToggleBtn");
 const compMatrixWrapEl = document.getElementById("compMatrixWrap");
 const compMatrixTableEl = document.getElementById("compMatrixTable");
 const toggleMatrixBtn = document.getElementById("toggleMatrixBtn");
+const exportSessionBtn = document.getElementById("exportSessionBtn");
+const importSessionInput = document.getElementById("importSessionInput");
+const sessionStatusEl = document.getElementById("sessionStatus");
+const refreshGateStatsBtn = document.getElementById("refreshGateStatsBtn");
+const exportGateStatsBtn = document.getElementById("exportGateStatsBtn");
+const gateStatsHintEl = document.getElementById("gateStatsHint");
+const gateStatsTableEl = document.getElementById("gateStatsTable");
 
 initTheme();
 
@@ -62,6 +77,107 @@ function defaultPlotMode() {
 function refreshThemeUI() {
   if (!themeToggleBtn) return;
   themeToggleBtn.textContent = `Theme: ${getCurrentTheme() === "dark" ? "Dark" : "Light"}`;
+}
+
+function setSessionStatus(text) {
+  if (sessionStatusEl) sessionStatusEl.textContent = text;
+}
+
+function isFullApplyUpToDate() {
+  return state.fullApply.status === "done" && state.fullApply.appliedRevision === state.compRevision;
+}
+
+function markGateStatsStale(message = null) {
+  state.gateStats.status = "stale";
+  state.gateStats.error = message;
+  state.gateStats.rows = [];
+  refreshGateStatsUI();
+}
+
+function refreshGateStatsUI() {
+  if (!gateStatsHintEl || !gateStatsTableEl) return;
+  gateStatsTableEl.innerHTML = "";
+
+  if (!state.dataset) {
+    gateStatsHintEl.textContent = "Load a dataset to compute gate statistics.";
+    return;
+  }
+
+  if (state.gates.length === 0) {
+    gateStatsHintEl.textContent = "Create at least one gate to compute statistics.";
+    return;
+  }
+
+  if (!isFullApplyUpToDate()) {
+    gateStatsHintEl.textContent = state.fullApply.status === "running"
+      ? "Apply-to-all is running. Exact gate statistics will unlock when it finishes."
+      : "Run Apply-to-all to compute exact gate statistics from the full compensated dataset.";
+    return;
+  }
+
+  if (state.gateStats.status === "running") {
+    gateStatsHintEl.textContent = "Computing exact gate statistics…";
+    return;
+  }
+
+  if (state.gateStats.status === "error") {
+    gateStatsHintEl.textContent = state.gateStats.error ?? "Failed to compute gate statistics.";
+    return;
+  }
+
+  if (!state.gateStats.rows.length) {
+    gateStatsHintEl.textContent = "Click Refresh stats to compute exact counts.";
+    return;
+  }
+
+  gateStatsHintEl.textContent = "Exact counts from the current full compensated dataset.";
+  renderGateStatsRows(state.gateStats.rows);
+}
+
+function renderGateStatsRows(rows) {
+  if (!gateStatsTableEl) return;
+  gateStatsTableEl.appendChild(makeGateStatsRow(["Gate", "Count", "%Parent", "%Total"], true));
+  for (const row of rows) {
+    gateStatsTableEl.appendChild(makeGateStatsRow([
+      row.name,
+      Number(row.count ?? 0).toLocaleString(),
+      `${Number(row.pctParent ?? 0).toFixed(2)}%`,
+      `${Number(row.pctTotal ?? 0).toFixed(2)}%`,
+    ]));
+  }
+}
+
+function makeGateStatsRow(values, header = false) {
+  const row = document.createElement("div");
+  row.className = `gate-stats-row${header ? " header" : ""}`;
+  for (let i = 0; i < values.length; i++) {
+    const cell = document.createElement("div");
+    cell.className = `gate-stats-cell${i === 0 ? "" : " mono"}`;
+    cell.textContent = values[i];
+    row.appendChild(cell);
+  }
+  return row;
+}
+
+function requestGateStats() {
+  if (!state.fullWorker || !isFullApplyUpToDate()) {
+    refreshGateStatsUI();
+    return;
+  }
+  state.gateStats.requestId += 1;
+  state.gateStats.status = "running";
+  state.gateStats.error = null;
+  refreshGateStatsUI();
+  state.fullWorker.postMessage({
+    type: "gate-stats",
+    requestId: state.gateStats.requestId,
+    gates: state.gates.map((gate) => ({
+      id: gate.id,
+      name: gate.name,
+      parentId: gate.parentId,
+      definition: gate.definition,
+    })),
+  });
 }
 
 function refreshLargeEventWarning() {
@@ -342,9 +458,20 @@ function applyCompCoeff(fromIndex, toIndex, value, { refreshReview = true } = {}
   if (!state.comp) return;
   state.comp.selectedFrom = fromIndex;
   state.comp.selectedTo = toIndex;
-  state.comp.setCoeff(fromIndex, toIndex, value);
+  const result = state.comp.setCoeff(fromIndex, toIndex, value);
+  if (!result?.ok) {
+    refreshCompUI();
+    refreshCompMatrixUI();
+    refreshApplyUI();
+    refreshWorstPairsUI();
+    updateAllPlots(state);
+    if (refreshReview) refreshSingleStainReviewUI();
+    setStatusText(`Compensation update rejected: ${String(result?.error?.message ?? state.comp.lastError ?? "invalid matrix")}`);
+    return;
+  }
   persistCompSnapshot();
   state.compRevision++;
+  markGateStatsStale();
   refreshCompUI();
   refreshCompMatrixUI();
   refreshApplyUI();
@@ -357,9 +484,20 @@ function resetCompPair(fromIndex, toIndex, { refreshReview = true } = {}) {
   if (!state.comp) return;
   state.comp.selectedFrom = fromIndex;
   state.comp.selectedTo = toIndex;
-  state.comp.resetPair(fromIndex, toIndex);
+  const result = state.comp.resetPair(fromIndex, toIndex);
+  if (!result?.ok) {
+    refreshCompUI();
+    refreshCompMatrixUI();
+    refreshApplyUI();
+    refreshWorstPairsUI();
+    updateAllPlots(state);
+    if (refreshReview) refreshSingleStainReviewUI();
+    setStatusText(`Failed to reset compensation pair: ${String(result?.error?.message ?? state.comp.lastError ?? "invalid matrix")}`);
+    return;
+  }
   persistCompSnapshot();
   state.compRevision++;
+  markGateStatsStale();
   refreshCompUI();
   refreshCompMatrixUI();
   refreshApplyUI();
@@ -478,6 +616,9 @@ function refreshSingleStainReviewUI() {
     sample,
     currentPair: state.comp ? { from: state.comp.selectedFrom, to: state.comp.selectedTo } : null,
     getCoeff: (fromIndex, toIndex) => state.comp?.getCoeff(fromIndex, toIndex) ?? 0,
+    getPreviewValue: (paramIndex, eventIndex, rawChannels) => state.comp
+      ? state.comp.applyPreviewValue(paramIndex, eventIndex, rawChannels)
+      : rawChannels[paramIndex]?.[eventIndex] ?? 0,
     onPickPair: setCompPairFromSingleStain,
     onChangeCoeff: (fromIndex, toIndex, value) => applyCompCoeff(fromIndex, toIndex, value, { refreshReview: false }),
   });
@@ -584,6 +725,8 @@ function refreshGateHierarchyUI() {
 window.addEventListener("gate-hierarchy-changed", () => {
   refreshGateHierarchyUI();
   updateAllPlots(state);
+  if (isFullApplyUpToDate()) requestGateStats();
+  else markGateStatsStale();
 });
 
 function mountPlot(plot) {
@@ -604,6 +747,13 @@ function resetPlots() {
   state.plotCards.clear();
   state.plots = [];
   state.activePlotId = null;
+}
+
+function restorePlots(plots, activePlotId = null) {
+  resetPlots();
+  state.plots = plots;
+  state.activePlotId = activePlotId ?? plots[0]?.id ?? null;
+  for (const plot of plots) mountPlot(plot);
 }
 
 function ensureTwoPlots() {
@@ -641,10 +791,12 @@ async function loadDatasetFromFile(file) {
   const parsed = await parseFcsFile(buf);
   const dataset = {
     name: file.name,
+    version: parsed.version,
     nEvents: parsed.nEvents,
     params: parsed.params,
     preview: parsed.preview,
     sourceFile: file,
+    sha256: await sha256Hex(buf),
   };
   setDataset(state, dataset);
   state.comp = createCompModel(parsed.params.length, parsed.spill ?? null);
@@ -656,6 +808,10 @@ async function loadDatasetFromFile(file) {
   state.fullApply.total = 0;
   state.fullApply.appliedRevision = null;
   state.fullApply.error = null;
+  state.gateStats.status = "idle";
+  state.gateStats.rows = [];
+  state.gateStats.error = null;
+  state.gateStats.requestId = 0;
   rebindSingleStainSamples(dataset.params);
   syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
@@ -666,6 +822,7 @@ async function loadDatasetFromFile(file) {
   refreshSingleStainReviewUI();
   refreshApplyUI();
   refreshPlotCompSliders();
+  setSessionStatus(`Session baseline updated for ${dataset.name}.`);
   setCompControlsEnabled(true);
   ensureTwoPlots();
   if (dataset.nEvents > 0) {
@@ -683,6 +840,8 @@ function loadDemo() {
     state.fullWorker = null;
   }
   const demo = createDemoDataset();
+  demo.version = "DEMO";
+  demo.sha256 = "demo-dataset";
   setDataset(state, demo);
   state.comp = createCompModel(demo.params.length, null);
   state.compRevision = 0;
@@ -692,6 +851,10 @@ function loadDemo() {
   state.fullApply.total = 0;
   state.fullApply.appliedRevision = null;
   state.fullApply.error = null;
+  state.gateStats.status = "idle";
+  state.gateStats.rows = [];
+  state.gateStats.error = null;
+  state.gateStats.requestId = 0;
   rebindSingleStainSamples(demo.params);
   syncCompPairToSingleStainSample(getActiveSingleStainSample());
   refreshParamUI();
@@ -701,10 +864,12 @@ function loadDemo() {
   refreshSingleStainListUI();
   refreshSingleStainReviewUI();
   refreshApplyUI();
+  setSessionStatus(`Session baseline updated for ${demo.name}.`);
   setCompControlsEnabled(true);
   ensureTwoPlots();
   setStatusText("Loaded demo dataset");
 }
+
 
 // Data drop zone
 const dropZone = document.getElementById("dropZone");
@@ -753,13 +918,20 @@ async function loadSingleStainFiles(fileList) {
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     setStatusText(`Parsing single-stain ${i + 1}/${files.length}: ${file.name}`);
-    const parsed = await parseFcsFile(await file.arrayBuffer());
-    incoming.push(createSingleStainRecord(file.name, parsed, referenceParams.length ? referenceParams : parsed.params));
+    const buffer = await file.arrayBuffer();
+    const parsed = await parseFcsFile(buffer);
+    incoming.push(createSingleStainRecord(
+      file.name,
+      parsed,
+      referenceParams.length ? referenceParams : parsed.params,
+      { sha256: await sha256Hex(buffer) },
+    ));
   }
 
   const byName = new Map(state.singleStain.samples.map((sample) => [sample.fileName, sample]));
+  const byHash = new Map(state.singleStain.samples.filter((sample) => sample.sha256).map((sample) => [sample.sha256, sample]));
   for (const sample of incoming) {
-    const prev = byName.get(sample.fileName);
+    const prev = (sample.sha256 && byHash.get(sample.sha256)) || byName.get(sample.fileName);
     if (prev && prev.inferenceReason === "manual" && prev.stainedReferenceIndex != null) {
       sample.stainedReferenceIndex = prev.stainedReferenceIndex;
       sample.inferenceConfidence = "manual";
@@ -901,9 +1073,18 @@ document.getElementById("compResetBtn").addEventListener("click", () => {
 });
 document.getElementById("compResetAllBtn").addEventListener("click", () => {
   if (!state.comp) return;
-  state.comp.resetAll();
+  const result = state.comp.resetAll();
+  if (!result?.ok) {
+    console.error(result.error);
+    setStatusText(`Failed to reset compensation: ${String(result?.error?.message ?? state.comp.lastError ?? "invalid matrix")}`);
+    refreshCompUI();
+    refreshCompMatrixUI();
+    refreshSingleStainReviewUI();
+    return;
+  }
   persistCompSnapshot();
   state.compRevision++;
+  markGateStatsStale();
   refreshCompUI();
   refreshCompMatrixUI();
   refreshSingleStainReviewUI();
@@ -923,6 +1104,7 @@ document.getElementById("uploadCompInput").addEventListener("change", async (e) 
     await loadCompJsonFromFile(state.comp, file);
     persistCompSnapshot();
     state.compRevision++;
+    markGateStatsStale();
     refreshCompUI();
     refreshCompMatrixUI();
     refreshSingleStainReviewUI();
@@ -949,6 +1131,7 @@ document.getElementById("importCompCsvInput").addEventListener("change", async (
     await loadCompCsvFromFile(state.comp, state.dataset.params, file);
     persistCompSnapshot();
     state.compRevision++;
+    markGateStatsStale();
     refreshCompUI();
     refreshCompMatrixUI();
     refreshSingleStainReviewUI();
@@ -1167,9 +1350,14 @@ function handleFullWorkerMessage(msg) {
       state.fullApply.total = Number(msg.nEvents ?? state.fullApply.total ?? 0);
       state.fullApply.appliedRevision = msg.revision ?? null;
       state.fullApply.error = null;
+      state.gateStats.status = "idle";
+      state.gateStats.rows = [];
+      state.gateStats.error = null;
       refreshApplyUI();
+      refreshGateStatsUI();
       setCompControlsEnabled(true);
       setStatusText(`Apply-to-all done (${Number(msg.nEvents ?? 0).toLocaleString()} events)`);
+      if (state.gates.length > 0) requestGateStats();
       return;
     }
     case "apply-cancelled": {
@@ -1177,6 +1365,7 @@ function handleFullWorkerMessage(msg) {
       state.fullApply.phase = "";
       state.fullApply.error = null;
       refreshApplyUI();
+      refreshGateStatsUI();
       setCompControlsEnabled(true);
       setStatusText("Apply-to-all cancelled");
       return;
@@ -1189,6 +1378,7 @@ function handleFullWorkerMessage(msg) {
       state.fullApply.appliedRevision = null;
       state.fullApply.error = null;
       refreshApplyUI();
+      refreshGateStatsUI();
       return;
     }
     case "error": {
@@ -1197,6 +1387,7 @@ function handleFullWorkerMessage(msg) {
       state.fullApply.phase = "";
       state.fullApply.error = String(msg?.message ?? "Unknown worker error");
       refreshApplyUI();
+      refreshGateStatsUI();
       setCompControlsEnabled(true);
       setStatusText(`Apply-to-all failed: ${state.fullApply.error}`);
       return;
@@ -1216,6 +1407,22 @@ function handleFullWorkerMessage(msg) {
         total: msg.total,
       });
       updateAllPlots(state);
+      return;
+    }
+    case "gate-stats-result": {
+      if (msg.requestId !== state.gateStats.requestId) return;
+      state.gateStats.status = "ready";
+      state.gateStats.rows = Array.isArray(msg.rows) ? msg.rows : [];
+      state.gateStats.error = null;
+      refreshGateStatsUI();
+      return;
+    }
+    case "gate-stats-error": {
+      if (msg.requestId !== state.gateStats.requestId) return;
+      state.gateStats.status = "error";
+      state.gateStats.rows = [];
+      state.gateStats.error = String(msg.message ?? "Failed to compute gate statistics");
+      refreshGateStatsUI();
       return;
     }
     case "density-error": {
@@ -1267,6 +1474,83 @@ function cancelApplyToAll() {
 applyAllBtn.addEventListener("click", () => startApplyToAll());
 applyCancelBtn.addEventListener("click", () => cancelApplyToAll());
 
+if (exportSessionBtn) {
+  exportSessionBtn.addEventListener("click", () => {
+    try {
+      const session = createAnalysisSession(state);
+      const blob = new Blob([JSON.stringify(session, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${(state.dataset?.name ?? "fcm-session").replace(/\.fcs$/i, "")}-session.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setSessionStatus(`Exported session for ${state.dataset?.name ?? "dataset"}.`);
+    } catch (err) {
+      console.error(err);
+      setSessionStatus(`Session export failed: ${String(err?.message ?? err)}`);
+      setStatusText(`Session export failed: ${String(err?.message ?? err)}`);
+    }
+  });
+}
+
+if (importSessionInput) {
+  importSessionInput.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const session = JSON.parse(await file.text());
+      const restored = applyAnalysisSession(state, session);
+      persistCompSnapshot();
+      state.compRevision++;
+      markGateStatsStale();
+      if (restored.plots.length > 0) {
+        restorePlots(restored.plots, restored.activePlotId);
+        updateAllPlots(state);
+      } else {
+        ensureTwoPlots();
+      }
+      refreshCompUI();
+      refreshCompMatrixUI();
+      refreshWorstPairsUI();
+      refreshSingleStainListUI();
+      refreshSingleStainReviewUI();
+      refreshGateHierarchyUI();
+      refreshApplyUI();
+      refreshPlotCompSliders();
+      setSessionStatus(`Imported session from ${file.name}.`);
+      setStatusText(`Imported session from ${file.name}`);
+    } catch (err) {
+      console.error(err);
+      setSessionStatus(`Session import failed: ${String(err?.message ?? err)}`);
+      setStatusText(`Session import failed: ${String(err?.message ?? err)}`);
+    } finally {
+      e.target.value = "";
+    }
+  });
+}
+
+if (refreshGateStatsBtn) {
+  refreshGateStatsBtn.addEventListener("click", () => requestGateStats());
+}
+
+if (exportGateStatsBtn) {
+  exportGateStatsBtn.addEventListener("click", () => {
+    if (!state.gateStats.rows.length || !isFullApplyUpToDate()) {
+      setStatusText("Run Apply-to-all and refresh stats before exporting gate statistics.");
+      return;
+    }
+    const blob = new Blob([gateStatsToCsv(state.gateStats.rows)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(state.dataset?.name ?? "gate-stats").replace(/\.fcs$/i, "")}-gate-stats.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatusText("Exported gate statistics CSV");
+  });
+}
+
 // Initial UI
 refreshParamUI();
 refreshCompUI();
@@ -1277,7 +1561,9 @@ refreshSingleStainReviewUI();
 refreshGateHierarchyUI();
 refreshApplyUI();
 refreshThemeUI();
+refreshGateStatsUI();
 setCompControlsEnabled(false);
+setSessionStatus("Load a dataset to export or import a session.");
 setStatusText("Drop an FCS file (or load demo) to begin.");
 
 window.addEventListener("resize", () => refreshSingleStainReviewUI());
@@ -1300,5 +1586,7 @@ for (const id of ["gateXMin", "gateXMax", "gateYMin", "gateYMax"]) {
     
     refreshGateHierarchyUI();
     updateAllPlots(state);
+    if (isFullApplyUpToDate()) requestGateStats();
+    else markGateStatsStale();
   });
 }

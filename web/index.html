@@ -176,6 +176,31 @@
           </div>
         </section>
 
+        <section class="panel">
+          <h2>Session</h2>
+          <p class="panel-subtitle">Compensation, plots, gates, and single-stain assignments can be saved as a reproducible session JSON.</p>
+          <div class="row">
+            <button id="exportSessionBtn" class="btn btn-secondary">Export session</button>
+            <label class="btn btn-secondary file-btn">
+              Import session
+              <input id="importSessionInput" type="file" accept="application/json,.json" />
+            </label>
+          </div>
+          <div class="hint">Import requires the same dataset to be loaded first.</div>
+          <div id="sessionStatus" class="status-box mono">No session exported yet.</div>
+        </section>
+
+        <section class="panel">
+          <h2>Gate Stats</h2>
+          <p class="panel-subtitle">Exact counts are computed from full compensated data after Apply-to-all.</p>
+          <div class="row">
+            <button id="refreshGateStatsBtn" class="btn btn-secondary">Refresh stats</button>
+            <button id="exportGateStatsBtn" class="btn btn-secondary">Export CSV</button>
+          </div>
+          <div id="gateStatsHint" class="hint">Run Apply-to-all to unlock exact gate statistics.</div>
+          <div id="gateStatsTable" class="gate-stats-table"></div>
+        </section>
+
         </div><!-- /#analysisPanel -->
       </aside>
 

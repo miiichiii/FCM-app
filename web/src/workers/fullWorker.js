@@ -1,5 +1,10 @@
 import { parseFcsHeader, parseFcsTextSegment } from "../modules/fcs.js";
 import { parseFcsByteOrder, resolveFcsEndian } from "../modules/fcsEndian.js";
+import {
+  buildCompensationTransform,
+  buildTransformRows,
+} from "../modules/compMath.js";
+import { computeGateStatsFromChannels } from "../modules/gateStats.js";
 import { transformValue } from "../modules/transforms.js";
 
 let abortFlag = false;
@@ -41,6 +46,19 @@ self.onmessage = async (e) => {
           },
           [res.counts.buffer],
         );
+        return;
+      }
+      case "gate-stats": {
+        if (!full) {
+          postMessage({ type: "gate-stats-error", requestId: msg.requestId, message: "No full data" });
+          return;
+        }
+        const rows = computeGateStatsFromChannels({
+          channels: full.channels,
+          nEvents: full.nEvents,
+          gates: msg.gates,
+        });
+        postMessage({ type: "gate-stats-result", requestId: msg.requestId, rows });
         return;
       }
       case "cancel": {
@@ -134,7 +152,8 @@ async function applyToAllEvents(msg) {
 
   postMessage({ type: "apply-progress", done: 0, total: nEvents, phase: "applying" });
 
-  const nonZeroByTo = buildNonZeroByTo(coeffs, nParams);
+  const transform = buildCompensationTransform(nParams, coeffs);
+  const transformRows = buildTransformRows(transform, nParams);
 
   const TArray = dataType === "D" ? Float64Array : Float32Array;
   const channels = Array.from({ length: nParams }, () => new TArray(nEvents));
@@ -156,9 +175,9 @@ async function applyToAllEvents(msg) {
     }
 
     for (let to = 0; to < nParams; to++) {
-      let v = eventVals[to];
-      const fromList = nonZeroByTo[to];
-      for (let i = 0; i < fromList.length; i++) v -= fromList[i].coeff * eventVals[fromList[i].from];
+      let v = 0;
+      const fromList = transformRows[to];
+      for (let i = 0; i < fromList.length; i++) v += fromList[i].coeff * eventVals[fromList[i].from];
       channels[to][e] = v;
     }
 
@@ -167,10 +186,6 @@ async function applyToAllEvents(msg) {
 
   postMessage({ type: "apply-progress", done: nEvents, total: nEvents, phase: "finalizing" });
   return { full: { nEvents, nParams, channels } };
-}
-
-function idx(n, from, to) {
-  return to * n + from;
 }
 
 function computeDensity(fullData, msg) {
@@ -238,18 +253,6 @@ function computeDensity(fullData, msg) {
 function clampInt(x, min, max) {
   const xi = x | 0;
   return Math.max(min, Math.min(max, xi));
-}
-
-function buildNonZeroByTo(coeffs, n) {
-  const out = Array.from({ length: n }, () => []);
-  for (let to = 0; to < n; to++) {
-    for (let from = 0; from < n; from++) {
-      if (from === to) continue;
-      const c = coeffs[idx(n, from, to)];
-      if (Math.abs(c) > 1e-12) out[to].push({ from, coeff: c });
-    }
-  }
-  return out;
 }
 
 function bytesForParam(dataType, bits) {

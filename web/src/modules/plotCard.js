@@ -22,7 +22,7 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   const header = document.createElement("div");
   header.className = "plot-header";
 
-  const SCALE_OPTS = `<option value="linear">Linear</option><option value="logicle">Symlog</option><option value="arcsinh">Arcsinh</option>`;
+  const SCALE_OPTS = `<option value="linear">Linear</option><option value="logicle">Symlog (approx)</option><option value="arcsinh">Arcsinh</option>`;
   const xScaleSel = document.createElement("select");
   xScaleSel.innerHTML = SCALE_OPTS;
   const yScaleSel = document.createElement("select");
@@ -133,11 +133,23 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
   xSel.className = "axis-select axis-select-x";
   const xAutoBtn = document.createElement("button");
   xAutoBtn.className = "btn btn-secondary axis-auto-btn";
-  xAutoBtn.textContent = "X-Auto"; xAutoBtn.title = "X軸レンジを自動リセット (canvas端の▲▼▶◀マーカーでドラッグ調整も可)";
+  xAutoBtn.textContent = "X-Auto"; xAutoBtn.title = "X軸レンジを自動リセット";
   const yAutoBtn = document.createElement("button");
   yAutoBtn.className = "btn btn-secondary axis-auto-btn";
   yAutoBtn.textContent = "Y-Auto"; yAutoBtn.title = "Y軸レンジを自動リセット";
-  xSelRow.append(xSel, xAutoBtn, yAutoBtn);
+
+  // Max 数値入力ボックス (X/Y)
+  const xMaxInput = document.createElement("input");
+  xMaxInput.type = "number"; xMaxInput.className = "axis-max-input";
+  xMaxInput.title = "X軸最大値を直接入力";
+  const yMaxInput = document.createElement("input");
+  yMaxInput.type = "number"; yMaxInput.className = "axis-max-input";
+  yMaxInput.title = "Y軸最大値を直接入力";
+
+  const xMaxLabel = document.createElement("span"); xMaxLabel.className = "axis-max-label"; xMaxLabel.textContent = "X:";
+  const yMaxLabel = document.createElement("span"); yMaxLabel.className = "axis-max-label"; yMaxLabel.textContent = "Y:";
+
+  xSelRow.append(xSel, xAutoBtn, yAutoBtn, xMaxLabel, xMaxInput, yMaxLabel, yMaxInput);
 
   // Range スライダー (非表示: canvas マーカードラッグで代替)
   const xMinSlider = document.createElement("input");
@@ -275,6 +287,19 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     syncRangeUI(); updateAllPlots(state);
   });
 
+  // Max 数値入力: Enter or blur で確定
+  function applyMaxInput(input, axis) {
+    const v = parseFloat(input.value);
+    if (!Number.isFinite(v)) return;
+    if (axis === "x") { plot.xMax = v; }
+    else              { plot.yMax = v; }
+    syncRangeUI(); updateAllPlots(state);
+  }
+  xMaxInput.addEventListener("change", () => applyMaxInput(xMaxInput, "x"));
+  xMaxInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applyMaxInput(xMaxInput, "x"); });
+  yMaxInput.addEventListener("change", () => applyMaxInput(yMaxInput, "y"));
+  yMaxInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applyMaxInput(yMaxInput, "y"); });
+
   // ── Comp スライダー ────────────────────────────────────────────
   yCompSlider.addEventListener("input", () => {
     if (!isCompMode) return;
@@ -303,19 +328,20 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     const auto = raw ? computeAxisRanges({ plot, raw, n, comp })
                      : { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
 
-    const xMin = plot.xMin ?? auto.xMin;
     const xMax = plot.xMax ?? auto.xMax;
-    const yMin = plot.yMin ?? auto.yMin;
     const yMax = plot.yMax ?? auto.yMax;
+
+    // Max 入力ボックスの表示値を更新 (ユーザーが編集中でなければ)
+    if (document.activeElement !== xMaxInput) xMaxInput.value = xMax.toExponential(2);
+    if (document.activeElement !== yMaxInput) yMaxInput.value = yMax.toExponential(2);
 
     const xSpan = Math.abs(auto.xMax - auto.xMin) || 1;
     const ySpan = Math.abs(auto.yMax - auto.yMin) || 1;
-
-    // スライダーレンジをデータ幅の2倍に設定
-    setSliderRange(xMinSlider, auto.xMin - xSpan, auto.xMax, xMin);
+    // Hidden range sliders: keep in sync for any legacy code that reads them
+    setSliderRange(xMinSlider, auto.xMin - xSpan, auto.xMax, plot.xMin ?? auto.xMin);
     setSliderRange(xMaxSlider, auto.xMin, auto.xMax + xSpan, xMax);
     setSliderRange(yMaxSlider, auto.yMin, auto.yMax + ySpan, yMax);
-    setSliderRange(yMinSlider, auto.yMin - ySpan, auto.yMax, yMin);
+    setSliderRange(yMinSlider, auto.yMin - ySpan, auto.yMax, plot.yMin ?? auto.yMin);
   }
 
   function setSliderRange(slider, min, max, val) {
@@ -339,7 +365,9 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     if (!lastGeom) return;
     const pt = toCanvasPoint(canvas, e);
     // Check range marker hit first
-    const hit = hitRangeMarker(pt, lastGeom.plotArea, window.devicePixelRatio || 1);
+    const { plotArea: pa, axisRanges: ar, scaleParams: sp } = lastGeom;
+    const dpiNow = window.devicePixelRatio || 1;
+    const hit = hitRangeMarker(pt, pa, ar, plot.xScale, plot.yScale, sp, dpiNow);
     if (hit) {
       canvas.setPointerCapture(e.pointerId);
       rangeDrag = hit;
@@ -356,28 +384,24 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     if (rangeDrag) {
       const pt = toCanvasPoint(canvas, e);
       const { plotArea, axisRanges, scaleParams } = lastGeom;
-      const dpi = window.devicePixelRatio || 1;
-      const xMinT = transformValue(plot.xScale, axisRanges.xMin, scaleParams);
-      const xMaxT = transformValue(plot.xScale, axisRanges.xMax, scaleParams);
-      const yMinT = transformValue(plot.yScale, axisRanges.yMin, scaleParams);
-      const yMaxT = transformValue(plot.yScale, axisRanges.yMax, scaleParams);
-      const bottom = plotArea.top + plotArea.height;
+      // 0-anchor drag: user drags the "0" marker to set how much negative range is shown.
+      // Formula: when data 0 is at screen fraction r (0=left/bottom, 1=right/top),
+      //   MinT = -r * MaxT / (1 - r)   [since transform(0)=0 for all scales]
       if (rangeDrag.axis === "x") {
-        const nx = Math.max(0, Math.min(1, (pt.x - plotArea.left) / plotArea.width));
-        const val = inverseTransformValue(plot.xScale, xMinT + nx * (xMaxT - xMinT), scaleParams);
-        if (rangeDrag.which === "min") {
-          if (val < (plot.xMax ?? axisRanges.xMax)) { plot.xMin = val; syncRangeUI(); updateAllPlots(state); }
-        } else {
-          if (val > (plot.xMin ?? axisRanges.xMin)) { plot.xMax = val; syncRangeUI(); updateAllPlots(state); }
-        }
+        const TMax = transformValue(plot.xScale, plot.xMax ?? axisRanges.xMax, scaleParams);
+        const r = Math.max(0, Math.min(0.97, (pt.x - plotArea.left) / plotArea.width));
+        const xMinT_new = r < 0.001 ? 0 : -r * TMax / (1 - r);
+        const xMin_new  = inverseTransformValue(plot.xScale, xMinT_new, scaleParams);
+        plot.xMin = Math.min(0, xMin_new);
+        syncRangeUI(); updateAllPlots(state);
       } else {
-        const ny = Math.max(0, Math.min(1, (pt.y - plotArea.top) / plotArea.height));
-        const val = inverseTransformValue(plot.yScale, yMaxT - ny * (yMaxT - yMinT), scaleParams);
-        if (rangeDrag.which === "max") {
-          if (val > (plot.yMin ?? axisRanges.yMin)) { plot.yMax = val; syncRangeUI(); updateAllPlots(state); }
-        } else {
-          if (val < (plot.yMax ?? axisRanges.yMax)) { plot.yMin = val; syncRangeUI(); updateAllPlots(state); }
-        }
+        const TMax = transformValue(plot.yScale, plot.yMax ?? axisRanges.yMax, scaleParams);
+        // ny: fraction from bottom (0=bottom, 1=top); pointer is at (pt.y - top)/height from top → ny = 1 - that
+        const ny = Math.max(0, Math.min(0.97, 1 - (pt.y - plotArea.top) / plotArea.height));
+        const yMinT_new = ny < 0.001 ? 0 : -ny * TMax / (1 - ny);
+        const yMin_new  = inverseTransformValue(plot.yScale, yMinT_new, scaleParams);
+        plot.yMin = Math.min(0, yMin_new);
+        syncRangeUI(); updateAllPlots(state);
       }
       return;
     }
@@ -608,9 +632,9 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
       drawDensityColorbar(ctx, plotArea, dpi, theme);
     }
 
-    // Range drag markers (triangle handles at axis edges)
+    // Range drag markers (0-anchor triangles)
     if (!isCompMode) {
-      drawRangeMarkers(ctx, plotArea, dpi, theme);
+      drawRangeMarkers(ctx, plotArea, axisRanges, plot.xScale, plot.yScale, scaleParams, dpi, theme);
     }
 
     // Gate overlays
@@ -711,68 +735,105 @@ function clearCanvas(canvas) {
 
 // ── Range drag markers ───────────────────────────────────────────
 /**
- * Draw small triangle handles at the 4 axis edges.
- * X-min: ▶ at left edge of X-axis margin (bottom)
- * X-max: ◀ at right edge of X-axis margin (bottom)
- * Y-min: △ at bottom of Y-axis margin (left)
- * Y-max: ▽ at top of Y-axis margin (left)
- * Dragging a marker updates plot.xMin/xMax/yMin/yMax.
+ * 0-anchor triangle markers on axis margins.
+ *
+ * X-axis (bottom margin): ▲ triangle at data value 0 on the X-axis.
+ *   Dragging left/right changes xMin — how much negative range is shown.
+ *   Formula: xMinT = -r * TMax / (1 - r)  (r = fraction where 0 should appear)
+ *
+ * Y-axis (left margin): ▶ triangle at data value 0 on the Y-axis.
+ *   Dragging up/down changes yMin.
+ *
+ * xMax / yMax are controlled by the number input boxes in the UI.
  */
-function drawRangeMarkers(ctx, plotArea, dpi, theme) {
-  const right  = plotArea.left + plotArea.width;
-  const bottom = plotArea.top  + plotArea.height;
-  const S = 6 * dpi; // triangle half-size
-  const G = 4 * dpi; // gap from plot edge
+function drawRangeMarkers(ctx, plotArea, axisRanges, xScale, yScale, scaleParams, dpi, theme) {
+  const bottom = plotArea.top + plotArea.height;
+  const S = 7 * dpi;
+  const G = 5 * dpi;
 
   ctx.save();
-  ctx.fillStyle   = theme.plotText ?? "rgba(66,53,39,0.75)";
+  ctx.fillStyle   = theme.plotGate ?? "rgba(60,120,200,0.85)";
   ctx.strokeStyle = theme.plotCanvasBg ?? "#fff";
   ctx.lineWidth   = Math.max(1, dpi * 0.8);
-  ctx.globalAlpha = 0.75;
+  ctx.globalAlpha = 0.85;
 
-  function tri(points) {
+  function tri(pts) {
     ctx.beginPath();
-    ctx.moveTo(points[0][0], points[0][1]);
-    ctx.lineTo(points[1][0], points[1][1]);
-    ctx.lineTo(points[2][0], points[2][1]);
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    ctx.lineTo(pts[1][0], pts[1][1]);
+    ctx.lineTo(pts[2][0], pts[2][1]);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
   }
 
-  const yM = bottom + G + S; // Y center of X-axis markers
-  // Xmin ▶ (pointing right = "push boundary inward from left")
-  tri([[plotArea.left - S, yM - S], [plotArea.left - S, yM + S], [plotArea.left + S, yM]]);
-  // Xmax ◀ (pointing left = "push boundary inward from right")
-  tri([[right + S, yM - S], [right + S, yM + S], [right - S, yM]]);
+  // Pixel position of data value 0 on each axis
+  const { xMin, xMax, yMin, yMax } = axisRanges;
+  const xMinT = transformValue(xScale, xMin, scaleParams);
+  const xMaxT = transformValue(xScale, xMax, scaleParams);
+  const yMinT = transformValue(yScale, yMin, scaleParams);
+  const yMaxT = transformValue(yScale, yMax, scaleParams);
+  const T0 = 0; // transform(0) = 0 for all supported scales (linear, logicle, arcsinh)
 
-  const xM = plotArea.left - G - S; // X center of Y-axis markers
-  // Ymax ▲ (pointing up = "can extend upward")
-  tri([[xM, plotArea.top - S], [xM - S, plotArea.top + S], [xM + S, plotArea.top + S]]);
-  // Ymin ▼ (pointing down = "can extend downward")
-  tri([[xM, bottom + S], [xM - S, bottom - S], [xM + S, bottom - S]]);
+  const nx0 = (T0 - xMinT) / (xMaxT - xMinT || 1);
+  const ny0 = (T0 - yMinT) / (yMaxT - yMinT || 1);
+
+  // X-axis 0-marker: ▲ below the plot, at nx0 position
+  if (nx0 >= -0.05 && nx0 <= 1.05) {
+    const px = plotArea.left + nx0 * plotArea.width;
+    const yT = bottom + G;
+    tri([[px, yT], [px - S, yT + S * 1.4], [px + S, yT + S * 1.4]]);
+    // small vertical dashed line from axis to marker
+    ctx.save();
+    ctx.setLineDash([2 * dpi, 2 * dpi]);
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath(); ctx.moveTo(px, bottom); ctx.lineTo(px, yT); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Y-axis 0-marker: ▶ to the left of the plot, at ny0 position
+  if (ny0 >= -0.05 && ny0 <= 1.05) {
+    const py = plotArea.top + (1 - ny0) * plotArea.height;
+    const xL = plotArea.left - G;
+    tri([[xL, py], [xL - S * 1.4, py - S], [xL - S * 1.4, py + S]]);
+    ctx.save();
+    ctx.setLineDash([2 * dpi, 2 * dpi]);
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath(); ctx.moveTo(plotArea.left, py); ctx.lineTo(xL, py); ctx.stroke();
+    ctx.restore();
+  }
 
   ctx.restore();
 }
 
-/** Returns { axis:"x"|"y", which:"min"|"max" } if pt is near a range marker, else null */
-function hitRangeMarker(pt, plotArea, dpi) {
-  const right  = plotArea.left + plotArea.width;
-  const bottom = plotArea.top  + plotArea.height;
-  const S = 6 * dpi;
-  const G = 4 * dpi;
-  const HIT = 12 * dpi;
+/** Returns { axis:"x"|"y", which:"zero" } if pt is near the 0-anchor marker */
+function hitRangeMarker(pt, plotArea, axisRanges, xScale, yScale, scaleParams, dpi) {
+  const bottom = plotArea.top + plotArea.height;
+  const S = 7 * dpi;
+  const G = 5 * dpi;
+  const HIT = 14 * dpi;
 
-  const yMx = bottom + G + S;
-  if (Math.abs(pt.y - yMx) < HIT) {
-    if (Math.abs(pt.x - plotArea.left) < HIT) return { axis: "x", which: "min" };
-    if (Math.abs(pt.x - right)         < HIT) return { axis: "x", which: "max" };
+  const { xMin, xMax, yMin, yMax } = axisRanges;
+  const xMinT = transformValue(xScale, xMin, scaleParams);
+  const xMaxT = transformValue(xScale, xMax, scaleParams);
+  const yMinT = transformValue(yScale, yMin, scaleParams);
+  const yMaxT = transformValue(yScale, yMax, scaleParams);
+  const T0 = 0;
+
+  const nx0 = (T0 - xMinT) / (xMaxT - xMinT || 1);
+  if (nx0 >= -0.1 && nx0 <= 1.1) {
+    const px = plotArea.left + nx0 * plotArea.width;
+    const yT = bottom + G + S * 0.7;
+    if (Math.abs(pt.x - px) < HIT && Math.abs(pt.y - yT) < HIT) return { axis: "x", which: "zero" };
   }
-  const xMy = plotArea.left - G - S;
-  if (Math.abs(pt.x - xMy) < HIT) {
-    if (Math.abs(pt.y - plotArea.top) < HIT) return { axis: "y", which: "max" };
-    if (Math.abs(pt.y - bottom)       < HIT) return { axis: "y", which: "min" };
+
+  const ny0 = (T0 - yMinT) / (yMaxT - yMinT || 1);
+  if (ny0 >= -0.1 && ny0 <= 1.1) {
+    const py = plotArea.top + (1 - ny0) * plotArea.height;
+    const xL = plotArea.left - G - S * 0.7;
+    if (Math.abs(pt.x - xL) < HIT && Math.abs(pt.y - py) < HIT) return { axis: "y", which: "zero" };
   }
+
   return null;
 }
 

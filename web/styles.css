@@ -910,6 +910,37 @@ input[type="range"] {
   font-size: 11px !important;
 }
 
+/* Max 直接入力ボックス */
+.axis-max-input {
+  width: 70px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--input-bg, var(--card));
+  color: var(--text);
+  flex-shrink: 0;
+  /* Chrome の数値スピナーを非表示 */
+  -moz-appearance: textfield;
+}
+.axis-max-input::-webkit-outer-spin-button,
+.axis-max-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.axis-max-input:focus {
+  outline: 1px solid var(--accent-ring, var(--accent));
+}
+
+/* Max ラベル ("X:" / "Y:") */
+.axis-max-label {
+  font-size: 11px;
+  opacity: 0.65;
+  flex-shrink: 0;
+  margin-left: 4px;
+  user-select: none;
+}
+
 /* ⚡ Comp ボタン active 状態 */
 .btn.active {
   background: var(--accent-soft);
@@ -1063,3 +1094,30 @@ canvas {
 
 .ss-empty-hint { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
 .ss-empty-hint p:first-child { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+
+.gate-stats-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.gate-stats-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(72px, 0.8fr));
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.gate-stats-row.header {
+  font-weight: 700;
+  background: var(--panel);
+}
+
+.gate-stats-cell.mono {
+  text-align: right;
+}
