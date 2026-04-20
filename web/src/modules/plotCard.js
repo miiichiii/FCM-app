@@ -516,8 +516,8 @@ export function createPlotCard(state, plot, onActivate, { onApplyComp } = {}) {
     ctx.strokeRect(plotArea.left, plotArea.top, plotArea.width, plotArea.height);
 
     // ── 軸目盛り ──────────────────────────────────────────────────
-    const xLabel = state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
-    const yLabel = state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
+    const xLabel = state.dataset?.params?.[plot.xParam]?.label ?? state.dataset?.params?.[plot.xParam]?.name ?? `P${plot.xParam+1}`;
+    const yLabel = state.dataset?.params?.[plot.yParam]?.label ?? state.dataset?.params?.[plot.yParam]?.name ?? `P${plot.yParam+1}`;
     drawAxisTicks(ctx, plotArea, axisRanges, plot.xScale, plot.yScale, scaleParams, dpi, theme, xLabel, yLabel, LEFT_MARGIN);
 
     const selectedGate = getGateById(state, state.selectedGateId);
@@ -865,16 +865,18 @@ function drawDensityColorbar(ctx, plotArea, dpi, theme) {
   ctx.lineWidth   = Math.max(1, dpi * 0.7);
   ctx.strokeRect(cbX, cbY, cbW, cbH);
 
-  // "H" / "L" labels
+  // Quantitative labels: High / Mid / Low
   const fs = Math.max(7, Math.round(8 * dpi));
-  ctx.font         = `${fs}px ui-monospace,monospace`;
-  ctx.fillStyle    = theme.plotText ?? "rgba(66,53,39,0.75)";
-  ctx.globalAlpha  = 0.8;
+  ctx.font         = `bold ${fs}px sans-serif`;
+  ctx.fillStyle    = theme.plotText ?? "rgba(66,53,39,0.9)";
+  ctx.globalAlpha  = 1.0;
   ctx.textAlign    = "left";
   ctx.textBaseline = "top";
-  ctx.fillText("H", cbX + cbW + 2 * dpi, cbY);
+  ctx.fillText("Max", cbX + cbW + 2 * dpi, cbY);
+  ctx.textBaseline = "middle";
+  ctx.fillText("Mid", cbX + cbW + 2 * dpi, cbY + cbH / 2);
   ctx.textBaseline = "bottom";
-  ctx.fillText("L", cbX + cbW + 2 * dpi, cbY + cbH);
+  ctx.fillText("0", cbX + cbW + 2 * dpi, cbY + cbH);
 
   ctx.restore();
 }
@@ -896,7 +898,7 @@ function drawAxisTicks(ctx, plotArea, axisRanges, xScale, yScale, scaleParams, d
   ctx.strokeStyle = theme.plotText ?? "rgba(66,53,39,0.75)";
   ctx.globalAlpha = 0.85;
   const fs = Math.max(7, Math.round(9 * dpi));
-  ctx.font = `${fs}px ui-monospace,monospace`;
+  ctx.font = `${fs}px sans-serif`;
 
   // X-axis ticks: label & tick mark BELOW the plot box
   ctx.textAlign = "center";
@@ -905,7 +907,7 @@ function drawAxisTicks(ctx, plotArea, axisRanges, xScale, yScale, scaleParams, d
   for (const v of xTicks) {
     const t  = transformValue(xScale, v, scaleParams);
     const nx = (t - xMinT) / denomX;
-    if (nx < 0.02 || nx > 0.98) continue;
+    if (nx < 0.005 || nx > 0.995) continue;
     const px = plotArea.left + nx * plotArea.width;
     // tick mark extending downward from bottom edge
     ctx.beginPath();
@@ -923,7 +925,7 @@ function drawAxisTicks(ctx, plotArea, axisRanges, xScale, yScale, scaleParams, d
   for (const v of yTicks) {
     const t  = transformValue(yScale, v, scaleParams);
     const ny = (t - yMinT) / denomY;
-    if (ny < 0.03 || ny > 0.97) continue;
+    if (ny < 0.005 || ny > 0.995) continue;
     const py = plotArea.top + (1 - ny) * plotArea.height;
     // tick mark extending leftward from left edge
     ctx.beginPath();
@@ -981,7 +983,7 @@ function computeTicks(min, max, scale, n) {
   if (min <= 0 && 0 <= max) ticks.push(0);
   const posStart = Math.max(0, Math.floor(Math.log10(Math.max(1, min))));
   const posEnd = Math.ceil(Math.log10(Math.max(1, max)));
-  for (let e = posStart; e <= posEnd && ticks.length < n + 3; e++) {
+  for (let e = posStart; e <= posEnd; e++) {
     const v = Math.pow(10, e);
     if (v >= min * 0.99 && v <= max * 1.01) ticks.push(v);
   }
